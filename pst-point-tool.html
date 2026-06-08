@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PST ポイント調整ツール (Tale)</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+  background: #f7f7f7;
+  color: #444;
+  padding: 28px 24px;
+  min-height: 100vh;
+}
+h1 {
+  font-size: 16px;
+  font-weight: 500;
+  color: #888;
+  margin-bottom: 20px;
+  letter-spacing: 0.04em;
+}
+.layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  max-width: 1100px;
+}
+/* ─── Left panel ─── */
+.left {
+  flex: 0 0 300px;
+  min-width: 0;
+}
+.input-card {
+  border: 1px solid #e8a0b8;
+  border-radius: 6px;
+  padding: 18px 16px;
+  background: #fff;
+}
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 5px;
+}
+.field input[type=number] {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: #444;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.field input[type=number]::-webkit-inner-spin-button,
+.field input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+.field input[type=number]:focus { border-color: #d45070; }
+.btn-calc {
+  width: 100%;
+  padding: 9px;
+  background: #fff;
+  border: 1px solid #d45070;
+  border-radius: 4px;
+  color: #d45070;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 2px;
+  transition: background 0.15s;
+}
+.btn-calc:hover { background: #fff0f4; }
+.spec-toggle {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 12px;
+  color: #bbb;
+  cursor: pointer;
+  user-select: none;
+}
+.spec-toggle:hover { color: #d45070; }
+.spec-body {
+  display: none;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #aaa;
+  line-height: 1.7;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 10px;
+}
+.spec-body.open { display: block; }
+.spec-body li { margin-left: 12px; margin-bottom: 2px; }
+
+/* ─── Right panel ─── */
+.right {
+  flex: 1;
+  min-width: 0;
+}
+.placeholder {
+  color: #ccc;
+  font-size: 13px;
+  padding: 32px 0;
+  text-align: center;
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border: 1px solid #eee;
+  border-radius: 5px;
+  background: #fff;
+  margin-bottom: 6px;
+}
+.row-name {
+  flex: 1;
+  font-size: 14px;
+  color: #7aafc8;
+}
+.stage-badge {
+  border: 1px solid #d45070;
+  border-radius: 3px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: #d45070;
+  margin-right: 14px;
+  flex-shrink: 0;
+}
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.cbtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid #d45070;
+  border-radius: 3px;
+  background: #fff;
+  color: #d45070;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+.cbtn:hover { background: #fff0f4; }
+.cval {
+  min-width: 22px;
+  text-align: center;
+  font-size: 14px;
+  color: #444;
+}
+
+/* ─── Summary ─── */
+.summary {
+  margin-top: 14px;
+  background: #fff8fb;
+  border: 1px solid #f0cad6;
+  border-radius: 5px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.srow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  color: #888;
+}
+.srow + .srow { border-top: 1px solid #f5e0e8; }
+.sval { color: #555; font-variant-numeric: tabular-nums; }
+.warn { color: #d45070; font-weight: 600; }
+.ok   { color: #5ba06a; font-weight: 600; }
+.over { color: #c05080; font-weight: 600; }
+
+@media (max-width: 620px) {
+  .layout { flex-direction: column; }
+  .left { flex: none; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<h1>PST ポイント調整ツール — Tale</h1>
+
+<div class="layout">
+  <div class="left">
+    <div class="input-card">
+      <div class="field">
+        <label>目標のポイント</label>
+        <input type="number" id="inp-target" value="5000" min="0">
+      </div>
+      <div class="field">
+        <label>現在のポイント</label>
+        <input type="number" id="inp-current" value="0" min="0">
+      </div>
+      <div class="field">
+        <label>進捗（0〜99）</label>
+        <input type="number" id="inp-progress" value="0" min="0" max="99">
+      </div>
+      <button class="btn-calc" onclick="doCalc()">計算する</button>
+      <span class="spec-toggle" onclick="toggleSpec()">◇仕様</span>
+      <ul class="spec-body" id="spec-body">
+        <li>Event Liveが出現している場合、必ず消化してから計算してください。</li>
+        <li>1st・2ndが含まれる場合、3rdより先に消化してください。進捗増加によりEvent Liveが出現し、プレイできなくなる可能性があります。</li>
+        <li>お仕事を選択した場合はリタイアできません。リタイア前提の場合は選択しないほうが良いです。</li>
+        <li>進捗が100になるとEvent Live（ポイント+3000、進捗−100）が出現します。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="right">
+    <div id="result-rows">
+      <div class="placeholder">計算するを押すと結果が表示されます</div>
+    </div>
+    <div id="summary" style="display:none" class="summary">
+      <div class="srow"><span>合計ポイント</span><span class="sval" id="s-total">0</span></div>
+      <div class="srow"><span>目標ポイント</span><span class="sval" id="s-target">0</span></div>
+      <div class="srow"><span>差分</span><span class="sval" id="s-diff">0</span></div>
+      <div class="srow"><span>最終進捗</span><span class="sval" id="s-prog">0</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SONGS = [
+  { id: 'el',  name: 'Event Live', stage: null,  point: 3000, trigger: -100 },
+  { id: 'mm3', name: 'Million Mix', stage: '3rd', point: 600,  trigger: 50 },
+  { id: 'mm2', name: 'Million Mix', stage: '2nd', point: 400,  trigger: 0 },
+  { id: 'mm1', name: 'Million Mix', stage: '1st', point: 200,  trigger: 0 },
+  { id: '6m3', name: '6 Mix',       stage: '3rd', point: 540,  trigger: 40 },
+  { id: '6m2', name: '6 Mix',       stage: '2nd', point: 360,  trigger: 0 },
+  { id: '6m1', name: '6 Mix',       stage: '1st', point: 180,  trigger: 0 },
+  { id: '4m3', name: '4 Mix',       stage: '3rd', point: 483,  trigger: 30 },
+  { id: '4m2', name: '4 Mix',       stage: '2nd', point: 322,  trigger: 0 },
+  { id: '4m1', name: '4 Mix',       stage: '1st', point: 161,  trigger: 0 },
+  { id: '2m3', name: '2 Mix',       stage: '3rd', point: 426,  trigger: 20 },
+  { id: '2m2', name: '2 Mix',       stage: '2nd', point: 284,  trigger: 0 },
+  { id: '2m1', name: '2 Mix',       stage: '1st', point: 142,  trigger: 0 },
+];
+const BY_ID = Object.fromEntries(SONGS.map(s => [s.id, s]));
+const DISPLAY_ORDER = SONGS.map(s => s.id);
+const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1'];
+
+let state = {};   // { id: count }
+let T = 0, C = 0, P0 = 0;
+
+function calcAlgo(target, current, startProg) {
+  const needed = target - current;
+  if (needed <= 0) return {};
+  const cnt = {};
+  const add = (id, n) => { cnt[id] = (cnt[id] || 0) + n; };
+
+  let rem = needed;
+  let prog = startProg;
+
+  // Phase 1: greedy Event Lives using MM3rd for progress
+  while (rem >= 3000) {
+    const progNeed = Math.max(0, 100 - prog);
+    const mm3Need  = Math.ceil(progNeed / 50);
+    const mm3Cost  = mm3Need * 600;
+    if (rem >= mm3Cost + 3000) {
+      if (mm3Need > 0) {
+        add('mm3', mm3Need);
+        rem  -= mm3Cost;
+        prog += mm3Need * 50 - 100;
+      } else {
+        prog -= 100;
+      }
+      add('el', 1);
+      rem -= 3000;
+    } else {
+      break;
+    }
+  }
+
+  // Phase 2: greedy fill by highest point
+  for (const id of FILL_ORDER) {
+    if (rem <= 0) break;
+    const s = BY_ID[id];
+    const n = Math.floor(rem / s.point);
+    if (n > 0) {
+      add(id, n);
+      rem  -= n * s.point;
+      prog += n * s.trigger;
+    }
+  }
+
+  cnt.__prog = prog;
+  return cnt;
+}
+
+function sumState() {
+  let pts = 0, prog = P0;
+  for (const [id, n] of Object.entries(state)) {
+    if (id === '__prog') continue;
+    const s = BY_ID[id];
+    if (s) { pts += s.point * n; prog += s.trigger * n; }
+  }
+  return { pts: C + pts, prog };
+}
+
+function doCalc() {
+  T  = parseInt(document.getElementById('inp-target').value)   || 0;
+  C  = parseInt(document.getElementById('inp-current').value)  || 0;
+  P0 = Math.min(99, Math.max(0, parseInt(document.getElementById('inp-progress').value) || 0));
+
+  state = calcAlgo(T, C, P0);
+  render();
+}
+
+function render() {
+  const wrap = document.getElementById('result-rows');
+  const rows = DISPLAY_ORDER.filter(id => (state[id] || 0) > 0);
+
+  if (rows.length === 0) {
+    wrap.innerHTML = '<div class="placeholder">目標に達しています</div>';
+    document.getElementById('summary').style.display = 'none';
+    return;
+  }
+
+  wrap.innerHTML = rows.map(id => {
+    const s = BY_ID[id];
+    const badge = s.stage ? `<span class="stage-badge">${s.stage}</span>` : '';
+    return `<div class="result-row">
+      <span class="row-name">${s.name}</span>
+      ${badge}
+      <div class="counter">
+        <button class="cbtn" onclick="adj('${id}',-1)">−</button>
+        <span class="cval" id="cv-${id}">${state[id]}</span>
+        <button class="cbtn" onclick="adj('${id}',+1)">+</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('summary').style.display = 'block';
+  refreshSummary();
+}
+
+function adj(id, d) {
+  state[id] = Math.max(0, (state[id] || 0) + d);
+  const el = document.getElementById('cv-' + id);
+  if (el) el.textContent = state[id];
+  if (state[id] === 0) render(); else refreshSummary();
+}
+
+function refreshSummary() {
+  const { pts, prog } = sumState();
+  const diff = pts - T;
+
+  document.getElementById('s-total').textContent  = pts.toLocaleString();
+  document.getElementById('s-target').textContent = T.toLocaleString();
+
+  const de = document.getElementById('s-diff');
+  de.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString();
+  de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
+
+  const pe = document.getElementById('s-prog');
+  pe.textContent = prog + (prog >= 100 ? '　※ Event Live が出現します' : '');
+  pe.className = 'sval' + (prog >= 100 ? ' warn' : '');
+}
+
+function toggleSpec() {
+  document.getElementById('spec-body').classList.toggle('open');
+}
+</script>
+</body>
+</html>
