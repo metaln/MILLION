@@ -193,11 +193,11 @@ h1 {
     <div class="input-card">
       <div class="field">
         <label>目標のポイント</label>
-        <input type="number" id="inp-target" value="5000" min="0">
+        <input type="number" id="inp-target" value="5000" min="0" max="20000">
       </div>
       <div class="field">
         <label>現在のポイント</label>
-        <input type="number" id="inp-current" value="0" min="0">
+        <input type="number" id="inp-current" value="0" min="0" max="20000">
       </div>
       <div class="field">
         <label>進捗（0〜99）</label>
@@ -247,58 +247,80 @@ const BY_ID = Object.fromEntries(SONGS.map(s => [s.id, s]));
 const DISPLAY_ORDER = SONGS.map(s => s.id);
 const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1'];
 
-let state = {};   // { id: count }
+let state = {};       // { id: count }
+let feasible = true;  // 丁度解が存在するか
 let T = 0, C = 0, P0 = 0;
 
+// ポイントを「丁度」 needed にする組み合わせを探索する。
+// 進捗は3rd曲の trigger が全て10の倍数のため10刻みに圧縮し、DPを軽量化。
+//   el回数 k = floor((P0 + G) / 100)   … 進捗100到達ごとに必ずEvent Liveを消化
+//   needed   = 3000·k + S              … S = 非el曲のポイント合計、G = 進捗合計
+// 解が複数ある場合は総プレイ回数（非el本数 + el回数）が最小のものを採用。
 function calcAlgo(target, current, startProg) {
   const needed = target - current;
-  if (needed <= 0) return {};
-  const cnt = {};
-  const add = (id, n) => { cnt[id] = (cnt[id] || 0) + n; };
+  if (needed <= 0) return { counts: {}, prog: startProg, feasible: true };
 
-  let rem = needed;
-  let prog = startProg;
+  const P0 = startProg;
+  const NON_EL = SONGS.filter(s => s.id !== 'el');
+  const maxPt = needed;
+  const maxK  = Math.floor(needed / 3000);
+  const gpMax = Math.floor((100 * maxK + 99) / 10);   // 進捗(10刻み)の上限
+  const W = gpMax + 1;
+  const BIG = 32000;
 
-  // Phase 1: greedy Event Lives using MM3rd for progress
-  while (rem >= 3000) {
-    const progNeed = Math.max(0, 100 - prog);
-    const mm3Need  = Math.ceil(progNeed / 50);
-    const mm3Cost  = mm3Need * 600;
-    if (rem >= mm3Cost + 3000) {
-      if (mm3Need > 0) {
-        add('mm3', mm3Need);
-        rem  -= mm3Cost;
-        prog += mm3Need * 50 - 100;
-      } else {
-        prog -= 100;
+  // dp[pt][gp] = そのポイント・進捗に到達する最小の非el本数
+  const dp   = new Int16Array((maxPt + 1) * W).fill(BIG);
+  const from = new Int8Array((maxPt + 1) * W).fill(-1);   // 経路復元: 直前に足した曲index
+  const idx = (pt, gp) => pt * W + gp;
+  dp[0] = 0;
+
+  for (let pt = 0; pt <= maxPt; pt++) {
+    for (let gp = 0; gp <= gpMax; gp++) {
+      const cur = dp[idx(pt, gp)];
+      if (cur === BIG) continue;
+      for (let si = 0; si < NON_EL.length; si++) {
+        const s = NON_EL[si];
+        const np  = pt + s.point;
+        const ngp = gp + s.trigger / 10;
+        if (np > maxPt || ngp > gpMax) continue;
+        const ni = idx(np, ngp);
+        if (cur + 1 < dp[ni]) { dp[ni] = cur + 1; from[ni] = si; }
       }
-      add('el', 1);
-      rem -= 3000;
-    } else {
-      break;
     }
   }
 
-  // Phase 2: greedy fill by highest point
-  for (const id of FILL_ORDER) {
-    if (rem <= 0) break;
-    const s = BY_ID[id];
-    const n = Math.floor(rem / s.point);
-    if (n > 0) {
-      add(id, n);
-      rem  -= n * s.point;
-      prog += n * s.trigger;
-    }
+  // 総プレイ回数が最小の丁度解を探す
+  let best = { plays: BIG, pt: 0, gp: 0, k: 0 };
+  for (let gp = 0; gp <= gpMax; gp++) {
+    const k  = Math.floor((P0 + 10 * gp) / 100);
+    const pt = needed - 3000 * k;
+    if (pt < 0 || pt > maxPt) continue;
+    const d = dp[idx(pt, gp)];
+    if (d === BIG) continue;
+    const plays = d + k;
+    if (plays < best.plays) best = { plays, pt, gp, k };
   }
 
-  cnt.__prog = prog;
-  return cnt;
+  if (best.plays === BIG) return { counts: {}, prog: P0, feasible: false };
+
+  // 経路復元
+  const counts = {};
+  let pt = best.pt, gp = best.gp;
+  while (pt > 0 || gp > 0) {
+    const s = NON_EL[from[idx(pt, gp)]];
+    counts[s.id] = (counts[s.id] || 0) + 1;
+    pt -= s.point;
+    gp -= s.trigger / 10;
+  }
+  if (best.k > 0) counts.el = best.k;
+
+  const prog = P0 + 10 * best.gp - 100 * best.k;
+  return { counts, prog, feasible: true };
 }
 
 function sumState() {
   let pts = 0, prog = P0;
   for (const [id, n] of Object.entries(state)) {
-    if (id === '__prog') continue;
     const s = BY_ID[id];
     if (s) { pts += s.point * n; prog += s.trigger * n; }
   }
@@ -306,16 +328,26 @@ function sumState() {
 }
 
 function doCalc() {
-  T  = parseInt(document.getElementById('inp-target').value)   || 0;
-  C  = parseInt(document.getElementById('inp-current').value)  || 0;
-  P0 = Math.min(99, Math.max(0, parseInt(document.getElementById('inp-progress').value) || 0));
+  const clampPt = v => Math.min(20000, Math.max(0, parseInt(v, 10) || 0));
+  T  = clampPt(document.getElementById('inp-target').value);
+  C  = clampPt(document.getElementById('inp-current').value);
+  P0 = Math.min(99, Math.max(0, parseInt(document.getElementById('inp-progress').value, 10) || 0));
 
-  state = calcAlgo(T, C, P0);
+  const res = calcAlgo(T, C, P0);
+  state = res.counts;
+  feasible = res.feasible;
   render();
 }
 
 function render() {
   const wrap = document.getElementById('result-rows');
+
+  if (!feasible) {
+    wrap.innerHTML = '<div class="placeholder warn">ポイントを丁度にできません</div>';
+    document.getElementById('summary').style.display = 'none';
+    return;
+  }
+
   const rows = DISPLAY_ORDER.filter(id => (state[id] || 0) > 0);
 
   if (rows.length === 0) {
