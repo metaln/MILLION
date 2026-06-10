@@ -247,6 +247,56 @@ const BY_ID = Object.fromEntries(SONGS.map(s => [s.id, s]));
 const DISPLAY_ORDER = SONGS.map(s => s.id);
 const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1'];
 
+// ── ゲーム仕様の定数（SONGS定義から導出し単一情報源化）──
+const EL = BY_ID.el;                 // Event Live: point 3000 / trigger -100
+const PROGRESS_CAP = 100;            // 進捗100到達でEvent Live出現
+const STEP = 10;                     // 進捗の量子（3rd曲triggerの最大公約数）
+
+// 前提検証: 非el曲のtriggerはSTEPの非負倍数（DPの進捗圧縮が成立する条件）
+FILL_ORDER.forEach(id => {
+  const t = BY_ID[id].trigger;
+  if (t < 0 || t % STEP !== 0)
+    throw new Error(`song ${id}: trigger は ${STEP} の非負倍数である必要があります`);
+});
+
+// HTML特殊文字エスケープ（innerHTML描画の防御。将来データ外部化時の保険）
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// プレイ順序の分類（spec: 進捗を増やす3rdより先に1st/2ndを消化）
+const PROGRESS_SONGS = FILL_ORDER.filter(id => BY_ID[id].trigger > 0);  // 3rd（進捗増）
+const FLAT_SONGS     = FILL_ORDER.filter(id => BY_ID[id].trigger === 0); // 1st/2nd（進捗不変）
+
+// 曲の本数(counts)から実プレイ可能な順序を構築する。
+//   1. 進捗不変曲(1st/2nd)を先に消化 → el未出現を維持
+//   2. 進捗増加曲(3rd)を打ち、進捗100到達ごとにEvent Liveを消化(-100)
+// counts通りに並べ切れれば ok=true。手動調整でel不足等が生じると ok=false。
+function buildSequence(counts, startProg) {
+  const remain = { ...counts };
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const seq = [];
+  let prog = startProg;
+  let guard = 0;
+
+  while (seq.length < total && guard++ <= total) {
+    // Event Live出現中(進捗100以上)は必ず消化
+    if (prog >= PROGRESS_CAP) {
+      if ((remain.el || 0) <= 0) break;   // el不足でブロック（本来起きない）
+      seq.push(EL); remain.el--; prog -= PROGRESS_CAP; continue;
+    }
+    // 進捗不変曲 → 進捗増加曲の順に1本選ぶ
+    const pick = FLAT_SONGS.find(id => (remain[id] || 0) > 0)
+              ?? PROGRESS_SONGS.find(id => (remain[id] || 0) > 0);
+    if (!pick) {
+      if ((remain.el || 0) > 0) { seq.push(EL); remain.el--; prog -= PROGRESS_CAP; continue; }
+      break;
+    }
+    const s = BY_ID[pick];
+    seq.push(s); remain[pick]--; prog += s.trigger;
+  }
+  return { seq, ok: seq.length === total };
+}
+
 let state = {};       // { id: count }
 let feasible = true;  // 丁度解が存在するか
 let T = 0, C = 0, P0 = 0;
@@ -260,11 +310,11 @@ function calcAlgo(target, current, startProg) {
   const needed = target - current;
   if (needed <= 0) return { counts: {}, prog: startProg, feasible: true };
 
-  const P0 = startProg;
-  const NON_EL = SONGS.filter(s => s.id !== 'el');
+  const p0 = startProg;
+  const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（同点解のタイブレーク）
   const maxPt = needed;
-  const maxK  = Math.floor(needed / 3000);
-  const gpMax = Math.floor((100 * maxK + 99) / 10);   // 進捗(10刻み)の上限
+  const maxK  = Math.floor(needed / EL.point);
+  const gpMax = Math.floor((PROGRESS_CAP * maxK + PROGRESS_CAP - 1) / STEP);   // 進捗(STEP刻み)の上限
   const W = gpMax + 1;
   const BIG = 32000;
 
@@ -281,7 +331,7 @@ function calcAlgo(target, current, startProg) {
       for (let si = 0; si < NON_EL.length; si++) {
         const s = NON_EL[si];
         const np  = pt + s.point;
-        const ngp = gp + s.trigger / 10;
+        const ngp = gp + s.trigger / STEP;
         if (np > maxPt || ngp > gpMax) continue;
         const ni = idx(np, ngp);
         if (cur + 1 < dp[ni]) { dp[ni] = cur + 1; from[ni] = si; }
@@ -292,8 +342,8 @@ function calcAlgo(target, current, startProg) {
   // 総プレイ回数が最小の丁度解を探す
   let best = { plays: BIG, pt: 0, gp: 0, k: 0 };
   for (let gp = 0; gp <= gpMax; gp++) {
-    const k  = Math.floor((P0 + 10 * gp) / 100);
-    const pt = needed - 3000 * k;
+    const k  = Math.floor((p0 + STEP * gp) / PROGRESS_CAP);
+    const pt = needed - EL.point * k;
     if (pt < 0 || pt > maxPt) continue;
     const d = dp[idx(pt, gp)];
     if (d === BIG) continue;
@@ -301,20 +351,22 @@ function calcAlgo(target, current, startProg) {
     if (plays < best.plays) best = { plays, pt, gp, k };
   }
 
-  if (best.plays === BIG) return { counts: {}, prog: P0, feasible: false };
+  if (best.plays === BIG) return { counts: {}, prog: p0, feasible: false };
 
   // 経路復元
   const counts = {};
   let pt = best.pt, gp = best.gp;
   while (pt > 0 || gp > 0) {
-    const s = NON_EL[from[idx(pt, gp)]];
+    const fi = from[idx(pt, gp)];
+    if (fi < 0) break;   // 経路復元失敗ガード（理論上未到達のはずだがクラッシュ防止）
+    const s = NON_EL[fi];
     counts[s.id] = (counts[s.id] || 0) + 1;
     pt -= s.point;
-    gp -= s.trigger / 10;
+    gp -= s.trigger / STEP;
   }
   if (best.k > 0) counts.el = best.k;
 
-  const prog = P0 + 10 * best.gp - 100 * best.k;
+  const prog = p0 + STEP * best.gp - PROGRESS_CAP * best.k;
   return { counts, prog, feasible: true };
 }
 
@@ -345,6 +397,7 @@ function render() {
   if (!feasible) {
     wrap.innerHTML = '<div class="placeholder warn">ポイントを丁度にできません</div>';
     document.getElementById('summary').style.display = 'none';
+    document.getElementById('play-order').style.display = 'none';
     return;
   }
 
@@ -353,32 +406,55 @@ function render() {
   if (rows.length === 0) {
     wrap.innerHTML = '<div class="placeholder">目標に達しています</div>';
     document.getElementById('summary').style.display = 'none';
+    document.getElementById('play-order').style.display = 'none';
     return;
   }
 
   wrap.innerHTML = rows.map(id => {
     const s = BY_ID[id];
-    const badge = s.stage ? `<span class="stage-badge">${s.stage}</span>` : '';
+    const badge = s.stage ? `<span class="stage-badge">${esc(s.stage)}</span>` : '';
     return `<div class="result-row">
-      <span class="row-name">${s.name}</span>
+      <span class="row-name">${esc(s.name)}</span>
       ${badge}
       <div class="counter">
-        <button class="cbtn" onclick="adj('${id}',-1)">−</button>
-        <span class="cval" id="cv-${id}">${state[id]}</span>
-        <button class="cbtn" onclick="adj('${id}',+1)">+</button>
+        <button class="cbtn" onclick="adj('${esc(id)}',-1)">−</button>
+        <span class="cval" id="cv-${esc(id)}">${state[id]}</span>
+        <button class="cbtn" onclick="adj('${esc(id)}',+1)">+</button>
       </div>
     </div>`;
   }).join('');
 
   document.getElementById('summary').style.display = 'block';
   refreshSummary();
+  renderOrder();
+}
+
+function renderOrder() {
+  const card = document.getElementById('play-order');
+  const list = document.getElementById('order-list');
+  const { seq, ok } = buildSequence(state, P0);
+
+  if (seq.length === 0 && ok) { card.style.display = 'none'; return; }
+
+  card.style.display = 'block';
+  if (!ok) {
+    list.innerHTML = '<li class="order-error">この本数では順序を構築できません（進捗100到達時にEvent Liveが不足）</li>';
+    return;
+  }
+  list.innerHTML = seq.map(s => {
+    if (s.id === 'el')
+      return `<li class="el-step">${esc(s.name)}（消化）</li>`;
+    const stage = s.stage ? `<span class="order-stage">${esc(s.stage)}</span>` : '';
+    return `<li><span class="order-name">${esc(s.name)}</span>${stage}</li>`;
+  }).join('');
 }
 
 function adj(id, d) {
   state[id] = Math.max(0, (state[id] || 0) + d);
   const el = document.getElementById('cv-' + id);
   if (el) el.textContent = state[id];
-  if (state[id] === 0) render(); else refreshSummary();
+  if (state[id] === 0) render();
+  else { refreshSummary(); renderOrder(); }
 }
 
 function refreshSummary() {
@@ -393,8 +469,9 @@ function refreshSummary() {
   de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
 
   const pe = document.getElementById('s-prog');
-  pe.textContent = prog + (prog >= 100 ? '　※ Event Live が出現します' : '');
-  pe.className = 'sval' + (prog >= 100 ? ' warn' : '');
+  const dispProg = Math.max(0, prog);
+  pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
+  pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
 }
 
 function toggleSpec() {
