@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PST ポイント調整ツール (Tale)</title>
+<title>ミリシタ PSTポイント調整ツール (Tale)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -149,6 +149,8 @@ h1 {
   flex-shrink: 0;
 }
 .cbtn:hover { background: #eef2ff; }
+.cbtn:disabled { opacity: .4; color: #999; border-color: #ccc; cursor: not-allowed; }
+.cbtn:disabled:hover { background: #fff; }
 .cval {
   min-width: 22px;
   text-align: center;
@@ -178,6 +180,43 @@ h1 {
 .ok   { color: #259D63; font-weight: 600; }
 .over { color: #C4470A; font-weight: 600; }
 
+/* ─── Play order ─── */
+.order-title { font-weight: 600; color: #4D4D4D; margin-bottom: 8px; font-size: 13px; }
+.order-list { list-style: none; counter-reset: step; }
+.order-list li {
+  counter-increment: step;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.order-list li + li { border-top: 1px solid #d6e0fb; }
+.order-list li::before {
+  content: counter(step);
+  flex-shrink: 0;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #3460FB;
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.order-name { color: #0055AD; }
+.order-stage {
+  border: 1px solid #3460FB;
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: #0055AD;
+}
+.el-step { color: #C4470A; font-weight: 600; }
+.el-step::before { background: #C4470A; }
+.order-error { color: #D42020; font-weight: 600; }
+.order-error::before { display: none; }
+
 @media (max-width: 620px) {
   .layout { flex-direction: column; }
   .left { flex: none; width: 100%; }
@@ -186,7 +225,7 @@ h1 {
 </head>
 <body>
 
-<h1>PST ポイント調整ツール — Tale</h1>
+<h1>ミリシタ PSTポイント調整ツール — Tale</h1>
 
 <div class="layout">
   <div class="left">
@@ -223,6 +262,10 @@ h1 {
       <div class="srow"><span>目標ポイント</span><span class="sval" id="s-target">0</span></div>
       <div class="srow"><span>差分</span><span class="sval" id="s-diff">0</span></div>
       <div class="srow"><span>最終進捗</span><span class="sval" id="s-prog">0</span></div>
+    </div>
+    <div id="play-order" style="display:none" class="summary">
+      <div class="order-title">プレイ順序</div>
+      <ol id="order-list" class="order-list"></ol>
     </div>
   </div>
 </div>
@@ -298,6 +341,7 @@ function buildSequence(counts, startProg) {
 }
 
 let state = {};       // { id: count }
+let maxState = {};    // { id: 計算結果の本数 } … +ボタンの上限（これ以上増やせない）
 let feasible = true;  // 丁度解が存在するか
 let T = 0, C = 0, P0 = 0;
 
@@ -370,11 +414,16 @@ function calcAlgo(target, current, startProg) {
   return { counts, prog, feasible: true };
 }
 
+// 残り本数(state)を maxState から引いた「消化済み本数」を現在ポイント・進捗へ加算する。
+// -ボタン＝1本消化 → 消化済みが増える → 合計ポイントが増える。
 function sumState() {
   let pts = 0, prog = P0;
-  for (const [id, n] of Object.entries(state)) {
+  for (const id of Object.keys(maxState)) {
     const s = BY_ID[id];
-    if (s) { pts += s.point * n; prog += s.trigger * n; }
+    if (!s) continue;
+    const done = (maxState[id] || 0) - (state[id] || 0);
+    pts  += s.point * done;
+    prog += s.trigger * done;
   }
   return { pts: C + pts, prog };
 }
@@ -387,6 +436,7 @@ function doCalc() {
 
   const res = calcAlgo(T, C, P0);
   state = res.counts;
+  maxState = { ...res.counts };   // 計算結果を各曲の上限として固定
   feasible = res.feasible;
   render();
 }
@@ -419,7 +469,7 @@ function render() {
       <div class="counter">
         <button class="cbtn" onclick="adj('${esc(id)}',-1)">−</button>
         <span class="cval" id="cv-${esc(id)}">${state[id]}</span>
-        <button class="cbtn" onclick="adj('${esc(id)}',+1)">+</button>
+        <button class="cbtn" id="inc-${esc(id)}" onclick="adj('${esc(id)}',+1)"${state[id] >= (maxState[id] || 0) ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
   }).join('');
@@ -450,11 +500,15 @@ function renderOrder() {
 }
 
 function adj(id, d) {
-  state[id] = Math.max(0, (state[id] || 0) + d);
+  const max = maxState[id] || 0;
+  state[id] = Math.min(max, Math.max(0, (state[id] || 0) + d));   // 上限=計算結果の本数
   const el = document.getElementById('cv-' + id);
   if (el) el.textContent = state[id];
-  if (state[id] === 0) render();
-  else { refreshSummary(); renderOrder(); }
+  if (state[id] === 0) { render(); return; }
+  const inc = document.getElementById('inc-' + id);
+  if (inc) inc.disabled = state[id] >= max;   // 上限到達で+を無効化
+  refreshSummary();   // -／+の結果を合計ポイントへ反映
+  renderOrder();
 }
 
 function refreshSummary() {
@@ -472,6 +526,10 @@ function refreshSummary() {
   const dispProg = Math.max(0, prog);
   pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
   pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
+
+  // -／+の調整結果を上側の入力欄へ反映（目標到達時は現在ポイントを目標に一致させる）
+  document.getElementById('inp-current').value  = diff >= 0 ? T : pts;
+  document.getElementById('inp-progress').value = dispProg;
 }
 
 function toggleSpec() {
