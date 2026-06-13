@@ -389,7 +389,7 @@ function calcAlgo(target, current, startProg) {
   }
 
   // 総プレイ回数が最小の丁度解を探す
-  let best = { plays: BIG, pt: 0, gp: 0, k: 0 };
+  let best = { plays: BIG, pt: 0, gp: 0, k: 0, hasEL: false };
   for (let gp = 0; gp <= gpMax; gp++) {
     const k  = Math.floor((p0 + STEP * gp) / PROGRESS_CAP);
     const pt = needed - EL.point * k;
@@ -397,7 +397,10 @@ function calcAlgo(target, current, startProg) {
     const d = dp[idx(pt, gp)];
     if (d === BIG) continue;
     const plays = d + k;
-    if (plays < best.plays) best = { plays, pt, gp, k };
+    const hasEL = k > 0;
+    const better = (!best.hasEL && hasEL) ||
+                   (best.hasEL === hasEL && plays < best.plays);
+    if (better) best = { plays, pt, gp, k, hasEL };
   }
 
   if (best.plays === BIG) return { counts: {}, prog: p0, feasible: false };
