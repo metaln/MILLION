@@ -462,6 +462,8 @@ function render() {
     document.getElementById('summary').style.display = 'none';
     document.getElementById('play-order').style.display = 'none';
     document.getElementById('inp-current').value = T;
+    const { prog } = sumState();
+    document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, prog));
     return;
   }
 
@@ -528,7 +530,7 @@ function refreshSummary() {
   de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
 
   const pe = document.getElementById('s-prog');
-  const dispProg = Math.max(0, prog);
+  const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
   pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
   pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
 
