@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ミリシタ PSTポイント調整ツール (Tale)</title>
 <style>
@@ -242,8 +243,8 @@ h1 {
         <label>進捗（0〜99）</label>
         <input type="number" id="inp-progress" value="0" min="0" max="99">
       </div>
-      <button class="btn-calc" onclick="doCalc()">計算する</button>
-      <span class="spec-toggle" onclick="toggleSpec()">◇ 仕様を表示</span>
+      <button class="btn-calc" id="btn-calc">計算する</button>
+      <span class="spec-toggle" id="spec-toggle">◇ 仕様を表示</span>
       <ul class="spec-body" id="spec-body">
         <li>Event Liveが出現している場合、必ず消化してから計算してください。</li>
         <li>1st・2ndが含まれる場合、3rdより先に消化してください。進捗増加によりEvent Liveが出現し、プレイできなくなる可能性があります。</li>
@@ -313,6 +314,7 @@ const esc = s => String(s).replace(/[&<>"']/g,
 // プレイ順序の分類（spec: 進捗を増やす3rdより先に1st/2ndを消化）
 const PROGRESS_SONGS = FILL_ORDER.filter(id => BY_ID[id].trigger > 0);  // 3rd（進捗増）
 const FLAT_SONGS     = FILL_ORDER.filter(id => BY_ID[id].trigger === 0); // 1st/2nd（進捗不変）
+const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（calcAlgo で使用）
 
 // 曲の本数(counts)から実プレイ可能な順序を構築する。
 //   1. 進捗不変曲(1st/2nd)を先に消化 → el未出現を維持
@@ -344,10 +346,10 @@ function buildSequence(counts, startProg) {
   return { seq, ok: seq.length === total };
 }
 
-let state = {};       // { id: count }
-let maxState = {};    // { id: 計算結果の本数 } … +ボタンの上限（これ以上増やせない）
-let feasible = true;  // 丁度解が存在するか
-let T = 0, C = 0, P0 = 0;
+const appState = {
+  target: 0, current: 0, initialProgress: 0,
+  counts: {}, maxCounts: {}, feasible: true
+};
 
 // ポイントを「丁度」 needed にする組み合わせを探索する。
 // 進捗は3rd曲の trigger が全て10の倍数のため10刻みに圧縮し、DPを軽量化。
@@ -359,7 +361,6 @@ function calcAlgo(target, current, startProg) {
   if (needed <= 0) return { counts: {}, prog: startProg, feasible: true };
 
   const p0 = startProg;
-  const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（同点解のタイブレーク）
   const maxPt = needed;
   const maxK  = Math.floor(needed / EL.point);
   const gpMax = Math.floor((PROGRESS_CAP * maxK + PROGRESS_CAP - 1) / STEP);   // 進捗(STEP刻み)の上限
@@ -418,79 +419,122 @@ function calcAlgo(target, current, startProg) {
   return { counts, prog, feasible: true };
 }
 
-// 残り本数(state)を maxState から引いた「消化済み本数」を現在ポイント・進捗へ加算する。
+// 残り本数(counts)を maxCounts から引いた「消化済み本数」を現在ポイント・進捗へ加算する。
 // -ボタン＝1本消化 → 消化済みが増える → 合計ポイントが増える。
 function sumState() {
-  let pts = 0, prog = P0;
-  for (const id of Object.keys(maxState)) {
+  let pts = 0, prog = appState.initialProgress;
+  for (const id of Object.keys(appState.maxCounts)) {
     const s = BY_ID[id];
     if (!s) continue;
-    const done = (maxState[id] || 0) - (state[id] || 0);
+    const done = (appState.maxCounts[id] || 0) - (appState.counts[id] || 0);
     pts  += s.point * done;
     prog += s.trigger * done;
   }
-  return { pts: C + pts, prog };
+  return { pts: appState.current + pts, prog };
 }
 
 function doCalc() {
   const clampPt = v => Math.min(20000, Math.max(0, parseInt(v, 10) || 0));
-  T  = clampPt(document.getElementById('inp-target').value);
-  C  = clampPt(document.getElementById('inp-current').value);
-  P0 = Math.min(99, Math.max(0, parseInt(document.getElementById('inp-progress').value, 10) || 0));
+  appState.target           = clampPt(document.getElementById('inp-target').value);
+  appState.current          = clampPt(document.getElementById('inp-current').value);
+  appState.initialProgress  = Math.min(99, Math.max(0, parseInt(document.getElementById('inp-progress').value, 10) || 0));
 
-  const res = calcAlgo(T, C, P0);
-  state = res.counts;
-  maxState = { ...res.counts };   // 計算結果を各曲の上限として固定
-  feasible = res.feasible;
-  render();
+  const res = calcAlgo(appState.target, appState.current, appState.initialProgress);
+  appState.counts    = res.counts;
+  appState.maxCounts = { ...res.counts };
+  appState.feasible  = res.feasible;
+  renderAll();
 }
 
-function render() {
+// ViewModel（純粋関数）
+function buildViewModel() {
+  if (!appState.feasible) return { kind: 'infeasible' };
+  const rows = DISPLAY_ORDER.filter(id => (appState.counts[id] || 0) > 0);
+  const { pts, prog } = sumState();
+  if (rows.length === 0) return { kind: 'achieved', pts, prog };
+  return { kind: 'rows', rows, pts, prog };
+}
+
+function renderAll() {
+  const vm = buildViewModel();
+  _renderRows(vm);
+  _renderSummary(vm);
+  _renderOrder(vm);
+}
+
+let _orderRaf = 0;
+function scheduleOrder() {
+  if (_orderRaf) return;
+  _orderRaf = requestAnimationFrame(() => { _orderRaf = 0; _renderOrder(buildViewModel()); });
+}
+
+function _renderRows(vm) {
   const wrap = document.getElementById('result-rows');
-
-  if (!feasible) {
+  if (vm.kind === 'infeasible') {
     wrap.innerHTML = '<div class="placeholder warn">ポイントを丁度にできません</div>';
-    document.getElementById('summary').style.display = 'none';
-    document.getElementById('play-order').style.display = 'none';
     return;
   }
-
-  const rows = DISPLAY_ORDER.filter(id => (state[id] || 0) > 0);
-
-  if (rows.length === 0) {
+  if (vm.kind === 'achieved') {
     wrap.innerHTML = '<div class="placeholder">目標に達しています</div>';
-    document.getElementById('summary').style.display = 'none';
-    document.getElementById('play-order').style.display = 'none';
-    document.getElementById('inp-current').value = T;
-    const { prog } = sumState();
-    document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, prog));
     return;
   }
-
-  wrap.innerHTML = rows.map(id => {
+  wrap.innerHTML = vm.rows.map(id => {
     const s = BY_ID[id];
     const badge = s.stage ? `<span class="stage-badge">${esc(s.stage)}</span>` : '';
-    return `<div class="result-row">
+    const max = appState.maxCounts[id] || 0;
+    return `<div class="result-row" id="row-${esc(id)}">
       <span class="row-name">${esc(s.name)}</span>
       ${badge}
       <div class="counter">
-        <button class="cbtn" onclick="adj('${esc(id)}',-1)">−</button>
-        <span class="cval" id="cv-${esc(id)}">${state[id]}</span>
-        <button class="cbtn" id="inc-${esc(id)}" onclick="adj('${esc(id)}',+1)"${state[id] >= (maxState[id] || 0) ? ' disabled' : ''}>+</button>
+        <button class="cbtn" data-id="${esc(id)}" data-d="-1">−</button>
+        <span class="cval" id="cv-${esc(id)}">${appState.counts[id]}</span>
+        <button class="cbtn" id="inc-${esc(id)}" data-id="${esc(id)}" data-d="1"${appState.counts[id] >= max ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
   }).join('');
-
-  document.getElementById('summary').style.display = 'block';
-  refreshSummary();
-  renderOrder();
 }
 
-function renderOrder() {
+function _renderSummary(vm) {
+  const summaryEl = document.getElementById('summary');
+  const orderEl   = document.getElementById('play-order');
+  if (vm.kind === 'infeasible') {
+    summaryEl.style.display = 'none';
+    orderEl.style.display   = 'none';
+    return;
+  }
+  if (vm.kind === 'achieved') {
+    summaryEl.style.display = 'none';
+    orderEl.style.display   = 'none';
+    document.getElementById('inp-current').value  = appState.target;
+    document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, vm.prog));
+    return;
+  }
+  summaryEl.style.display = 'block';
+  const { pts, prog } = vm;
+  const diff = pts - appState.target;
+
+  document.getElementById('s-total').textContent  = pts.toLocaleString();
+  document.getElementById('s-target').textContent = appState.target.toLocaleString();
+
+  const de = document.getElementById('s-diff');
+  de.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString();
+  de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
+
+  const pe = document.getElementById('s-prog');
+  const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
+  pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
+  pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
+
+  document.getElementById('inp-current').value  = diff >= 0 ? appState.target : pts;
+  document.getElementById('inp-progress').value = dispProg;
+}
+
+function _renderOrder(vm) {
   const card = document.getElementById('play-order');
   const list = document.getElementById('order-list');
-  const { seq, ok } = buildSequence(state, P0);
+  if (vm.kind !== 'rows') { card.style.display = 'none'; return; }
 
+  const { seq, ok } = buildSequence(appState.counts, appState.initialProgress);
   if (seq.length === 0 && ok) { card.style.display = 'none'; return; }
 
   card.style.display = 'block';
@@ -507,41 +551,40 @@ function renderOrder() {
 }
 
 function adj(id, d) {
-  const max = maxState[id] || 0;
-  state[id] = Math.min(max, Math.max(0, (state[id] || 0) + d));   // 上限=計算結果の本数
-  const el = document.getElementById('cv-' + id);
-  if (el) el.textContent = state[id];
-  if (state[id] === 0) { render(); return; }
+  const max = appState.maxCounts[id] || 0;
+  appState.counts[id] = Math.min(max, Math.max(0, (appState.counts[id] || 0) + d));
+
+  const cv = document.getElementById('cv-' + id);
+  if (cv) cv.textContent = appState.counts[id];
+
+  if (appState.counts[id] === 0) {
+    const vm = buildViewModel();
+    if (vm.kind !== 'rows') { renderAll(); return; }
+    const row = document.getElementById('row-' + id);
+    if (row) row.style.display = 'none';
+    _renderSummary(vm);
+    scheduleOrder();
+    return;
+  }
+
   const inc = document.getElementById('inc-' + id);
-  if (inc) inc.disabled = state[id] >= max;   // 上限到達で+を無効化
-  refreshSummary();   // -／+の結果を合計ポイントへ反映
-  renderOrder();
+  if (inc) inc.disabled = appState.counts[id] >= max;
+
+  const vm = buildViewModel();
+  _renderSummary(vm);
+  scheduleOrder();
 }
 
-function refreshSummary() {
-  const { pts, prog } = sumState();
-  const diff = pts - T;
+document.getElementById('result-rows').addEventListener('click', e => {
+  const btn = e.target.closest('.cbtn[data-id]');
+  if (!btn) return;
+  adj(btn.dataset.id, parseInt(btn.dataset.d, 10));
+});
 
-  document.getElementById('s-total').textContent  = pts.toLocaleString();
-  document.getElementById('s-target').textContent = T.toLocaleString();
-
-  const de = document.getElementById('s-diff');
-  de.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString();
-  de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
-
-  const pe = document.getElementById('s-prog');
-  const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
-  pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
-  pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
-
-  // -／+の調整結果を上側の入力欄へ反映（目標到達時は現在ポイントを目標に一致させる）
-  document.getElementById('inp-current').value  = diff >= 0 ? T : pts;
-  document.getElementById('inp-progress').value = dispProg;
-}
-
-function toggleSpec() {
+document.getElementById('btn-calc').addEventListener('click', doCalc);
+document.getElementById('spec-toggle').addEventListener('click', () => {
   document.getElementById('spec-body').classList.toggle('open');
-}
+});
 </script>
 </body>
 </html>
