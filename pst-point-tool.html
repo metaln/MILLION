@@ -285,10 +285,14 @@ const SONGS = [
   { id: '2m3', name: '2 Mix',       stage: '3rd', point: 426,  trigger: 20 },
   { id: '2m2', name: '2 Mix',       stage: '2nd', point: 284,  trigger: 0 },
   { id: '2m1', name: '2 Mix',       stage: '1st', point: 142,  trigger: 0 },
+  { id: 'mmw', name: 'Million Mix', stage: '仕事', point: 82,  trigger: 0 },
+  { id: '6mw', name: '6 Mix',       stage: '仕事', point: 74,  trigger: 0 },
+  { id: '4mw', name: '4 Mix',       stage: '仕事', point: 57,  trigger: 0 },
+  { id: '2mw', name: '2 Mix',       stage: '仕事', point: 50,  trigger: 0 },
 ];
 const BY_ID = Object.fromEntries(SONGS.map(s => [s.id, s]));
 const DISPLAY_ORDER = SONGS.map(s => s.id);
-const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1'];
+const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1','mmw','6mw','4mw','2mw'];
 
 // ── ゲーム仕様の定数（SONGS定義から導出し単一情報源化）──
 const EL = BY_ID.el;                 // Event Live: point 3000 / trigger -100
