@@ -15,7 +15,7 @@ body {
   min-height: 100vh;
 }
 h1 {
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 500;
   color: #4D4D4D;
   margin-bottom: 20px;
@@ -79,13 +79,16 @@ h1 {
   cursor: pointer;
   user-select: none;
   text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
 }
 .spec-toggle:hover { color: #0017C1; }
 .spec-body {
   display: none;
   margin-top: 10px;
-  font-size: 11.5px;
-  color: #4D4D4D;
+  font-size: 13px;
+  color: #444;
   line-height: 1.7;
   border-top: 1px solid #e0e0e0;
   padding-top: 10px;
@@ -232,19 +235,19 @@ h1 {
   <div class="left">
     <div class="input-card">
       <div class="field">
-        <label>目標のポイント</label>
-        <input type="number" id="inp-target" value="0" min="0">
+        <label for="inp-target">目標のポイント</label>
+        <input type="number" id="inp-target" value="0" min="0" inputmode="numeric">
       </div>
       <div class="field">
-        <label>現在のポイント</label>
-        <input type="number" id="inp-current" value="0" min="0">
+        <label for="inp-current">現在のポイント</label>
+        <input type="number" id="inp-current" value="0" min="0" inputmode="numeric">
       </div>
       <div class="field">
-        <label>進捗（0〜100）</label>
-        <input type="number" id="inp-progress" value="0" min="0" max="100">
+        <label for="inp-progress">進捗（0〜100）</label>
+        <input type="number" id="inp-progress" value="0" min="0" max="100" inputmode="numeric">
       </div>
       <button class="btn-calc" id="btn-calc">計算する</button>
-      <span class="spec-toggle" id="spec-toggle">◇ 仕様を表示</span>
+      <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body">
         <li>Event Liveが出現している場合、必ず消化してから計算してください。</li>
         <li>1st・2ndが含まれる場合、3rdより先に消化してください。進捗増加によりEvent Liveが出現し、プレイできなくなる可能性があります。</li>
@@ -254,7 +257,7 @@ h1 {
   </div>
 
   <div class="right">
-    <div id="result-rows">
+    <div id="result-rows" aria-live="polite">
       <div class="placeholder">計算するを押すと結果が表示されます</div>
     </div>
     <div id="summary" style="display:none" class="summary">
@@ -497,7 +500,7 @@ function _renderRows(vm) {
       ${badge}
       <div class="counter">
         <button class="cbtn" data-id="${esc(id)}" data-d="-1">−</button>
-        <span class="cval" id="cv-${esc(id)}">${appState.counts[id]}</span>
+        <span class="cval" id="cv-${esc(id)}" aria-live="polite">${appState.counts[id]}</span>
         <button class="cbtn" id="inc-${esc(id)}" data-id="${esc(id)}" data-d="1"${appState.counts[id] >= max ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
@@ -527,7 +530,8 @@ function _renderSummary(vm) {
   document.getElementById('s-target').textContent = appState.target.toLocaleString();
 
   const de = document.getElementById('s-diff');
-  de.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString();
+  const symbol = diff > 0 ? '↑' : diff === 0 ? '✓ ' : '⚠ ';
+  de.textContent = symbol + (diff >= 0 ? '+' : '') + diff.toLocaleString();
   de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
 
   const pe = document.getElementById('s-prog');
@@ -593,7 +597,10 @@ document.getElementById('result-rows').addEventListener('click', e => {
 
 document.getElementById('btn-calc').addEventListener('click', doCalc);
 document.getElementById('spec-toggle').addEventListener('click', () => {
-  document.getElementById('spec-body').classList.toggle('open');
+  const body = document.getElementById('spec-body');
+  const btn  = document.getElementById('spec-toggle');
+  body.classList.toggle('open');
+  btn.setAttribute('aria-expanded', body.classList.contains('open') ? 'true' : 'false');
 });
 </script>
 </body>
