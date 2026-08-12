@@ -249,7 +249,7 @@ h1 {
       <button class="btn-calc" id="btn-calc">計算する</button>
       <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body">
-        <li>Event Liveが出現している場合、必ず消化してから計算してください。</li>
+        <li>Event Liveが出現している場合（進捗100）、そのまま進捗100で計算できます。プレイ順序の先頭にEvent Liveの消化が入ります。</li>
         <li>1st・2ndが含まれる場合、3rdより先に消化してください。進捗増加によりEvent Liveが出現し、プレイできなくなる可能性があります。</li>
         <li>進捗が100になるとEvent Live（ポイント+3000、進捗−100）が出現します。</li>
       </ul>
@@ -418,6 +418,17 @@ function calcAlgo(target, current, startProg) {
     pt -= s.point;
     gp -= s.trigger / STEP;
   }
+  // 不変条件チェック: 復元した counts が best と一致するか再計算で検証する。
+  // 上の復元ガード発火時など不完全な counts を「正解」として返さないための安全網。
+  let sumPt = 0, sumGp = 0;
+  for (const [id, n] of Object.entries(counts)) {
+    const s = BY_ID[id];
+    sumPt += s.point * n;
+    sumGp += (s.trigger / STEP) * n;
+  }
+  if (sumPt !== best.pt || sumGp !== best.gp || sumPt + EL.point * best.k !== needed)
+    return { counts: {}, prog: p0, feasible: false };
+
   if (best.k > 0) counts.el = best.k;
 
   const prog = p0 + STEP * best.gp - PROGRESS_CAP * best.k;
@@ -548,7 +559,8 @@ function _renderOrder(vm) {
   const list = document.getElementById('order-list');
   if (vm.kind !== 'rows') { card.style.display = 'none'; return; }
 
-  const { seq, ok } = buildSequence(appState.counts, appState.initialProgress);
+  // 手動調整(−ボタン)で消化済みの分を反映した現在進捗から構築する
+  const { seq, ok } = buildSequence(appState.counts, vm.prog);
   if (seq.length === 0 && ok) { card.style.display = 'none'; return; }
 
   card.style.display = 'block';
