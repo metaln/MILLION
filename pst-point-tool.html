@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ミリシタ PSTポイント調整ツール (Tale)</title>
 <style>
@@ -275,7 +275,7 @@ h1 {
 
 <script>
 const SONGS = [
-  { id: 'el',  name: 'Event Live', stage: null,  point: 3000, trigger: -100 },
+  { id: 'el',  name: 'Event Live', stage: null,  point: 3000, trigger: null }, // 進捗減少量はPROGRESS_CAPから導出（下記EL.trigger代入）
   { id: 'mm3', name: 'Million Mix', stage: '3rd', point: 600,  trigger: 50 },
   { id: 'mm2', name: 'Million Mix', stage: '2nd', point: 400,  trigger: 0 },
   { id: 'mm1', name: 'Million Mix', stage: '1st', point: 200,  trigger: 0 },
@@ -298,18 +298,32 @@ const DISPLAY_ORDER = SONGS.map(s => s.id);
 const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1','mmw','6mw','4mw','2mw'];
 
 // ── ゲーム仕様の定数（SONGS定義から導出し単一情報源化）──
-const EL = BY_ID.el;                 // Event Live: point 3000 / trigger -100
+const EL = BY_ID.el;                 // Event Live: point 3000
 const PROGRESS_CAP = 100;            // 進捗100到達でEvent Live出現
 const STEP = 10;                     // 進捗の量子（3rd曲triggerの最大公約数）
 const MAX_DIFF = 20000;              // 目標−現在ポイントの入力上限（DPのmaxPt上限と対応）
+EL.trigger = -PROGRESS_CAP;          // Event Live消化時の進捗減少量をPROGRESS_CAPから導出（二重管理防止）
 
 // 前提検証: 非el曲のtriggerはSTEPの非負倍数（DPの進捗圧縮が成立する条件）かつ
 // PROGRESS_CAP未満（calcAlgoの閉じた式とbuildSequenceの逐次判定が一致する条件）
-FILL_ORDER.forEach(id => {
-  const t = BY_ID[id].trigger;
-  if (t < 0 || t % STEP !== 0 || t >= PROGRESS_CAP)
-    throw new Error(`song ${id}: trigger は ${STEP} の非負倍数かつ ${PROGRESS_CAP} 未満である必要があります`);
-});
+// トップレベルthrowだと以降のリスナー登録に到達せず全ボタン無言停止になるためtry/catchで包み、
+// 失敗時はresult-rowsへ設定エラーを表示する（DOM要素はHTML側に既存）。
+try {
+  FILL_ORDER.forEach(id => {
+    const t = BY_ID[id].trigger;
+    if (t < 0 || t % STEP !== 0 || t >= PROGRESS_CAP)
+      throw new Error(`song ${id}: trigger は ${STEP} の非負倍数かつ ${PROGRESS_CAP} 未満である必要があります`);
+  });
+} catch (e) {
+  const rowsEl = document.getElementById('result-rows');
+  if (rowsEl) {
+    const div = document.createElement('div');
+    div.className = 'placeholder warn';
+    div.textContent = `設定エラー: ${e.message}`;
+    rowsEl.innerHTML = '';
+    rowsEl.appendChild(div);
+  }
+}
 
 // HTML特殊文字エスケープ（innerHTML描画の防御。将来データ外部化時の保険）
 const esc = s => String(s).replace(/[&<>"']/g,
@@ -474,19 +488,19 @@ function doCalc() {
   _syncInputsFromState(renderAll());
 }
 
-// ViewModel（純粋関数）
-function buildViewModel() {
-  if (!appState.feasible) return { kind: 'infeasible' };
-  const rows = DISPLAY_ORDER.filter(id => (appState.maxCounts[id] || 0) > 0);
+// ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
+function buildViewModel(state) {
+  if (!state.feasible) return { kind: 'infeasible' };
+  const rows = DISPLAY_ORDER.filter(id => (state.maxCounts[id] || 0) > 0);
   const { pts, prog } = sumState();
   if (rows.length === 0) return { kind: 'achieved', pts, prog };
   // 手動調整(−ボタン)で消化済みの分を反映した現在進捗から構築する
-  const { seq, ok } = buildSequence(appState.counts, prog);
+  const { seq, ok } = buildSequence(state.counts, prog);
   return { kind: 'rows', rows, pts, prog, seq, ok };
 }
 
 function renderAll() {
-  const vm = buildViewModel();
+  const vm = buildViewModel(appState);
   _renderRows(vm);
   _renderSummary(vm);
   _renderOrder(vm);
@@ -549,7 +563,7 @@ function _renderSummary(vm) {
   document.getElementById('s-target').textContent = appState.target.toLocaleString();
 
   const de = document.getElementById('s-diff');
-  const symbol = diff > 0 ? '↑' : diff === 0 ? '✓ ' : '⚠ ';
+  const symbol = diff > 0 ? '↑ ' : diff === 0 ? '✓ ' : '⚠ ';
   de.textContent = symbol + (diff >= 0 ? '+' : '') + diff.toLocaleString();
   de.className = 'sval ' + (diff > 0 ? 'over' : diff === 0 ? 'ok' : 'warn');
 
