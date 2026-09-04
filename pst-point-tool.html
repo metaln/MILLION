@@ -301,12 +301,14 @@ const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1',
 const EL = BY_ID.el;                 // Event Live: point 3000 / trigger -100
 const PROGRESS_CAP = 100;            // 進捗100到達でEvent Live出現
 const STEP = 10;                     // 進捗の量子（3rd曲triggerの最大公約数）
+const MAX_DIFF = 20000;              // 目標−現在ポイントの入力上限（DPのmaxPt上限と対応）
 
-// 前提検証: 非el曲のtriggerはSTEPの非負倍数（DPの進捗圧縮が成立する条件）
+// 前提検証: 非el曲のtriggerはSTEPの非負倍数（DPの進捗圧縮が成立する条件）かつ
+// PROGRESS_CAP未満（calcAlgoの閉じた式とbuildSequenceの逐次判定が一致する条件）
 FILL_ORDER.forEach(id => {
   const t = BY_ID[id].trigger;
-  if (t < 0 || t % STEP !== 0)
-    throw new Error(`song ${id}: trigger は ${STEP} の非負倍数である必要があります`);
+  if (t < 0 || t % STEP !== 0 || t >= PROGRESS_CAP)
+    throw new Error(`song ${id}: trigger は ${STEP} の非負倍数かつ ${PROGRESS_CAP} 未満である必要があります`);
 });
 
 // HTML特殊文字エスケープ（innerHTML描画の防御。将来データ外部化時の保険）
@@ -317,6 +319,9 @@ const esc = s => String(s).replace(/[&<>"']/g,
 const PROGRESS_SONGS = FILL_ORDER.filter(id => BY_ID[id].trigger > 0);  // 3rd（進捗増）
 const FLAT_SONGS     = FILL_ORDER.filter(id => BY_ID[id].trigger === 0); // 1st/2nd（進捗不変）
 const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（calcAlgo で使用）
+// calcAlgo のDP最内ループ用に事前展開（除算・プロパティアクセスをループ外へ）
+const NON_EL_PT = Int16Array.from(NON_EL, s => s.point);
+const NON_EL_GP = Int8Array.from(NON_EL, s => s.trigger / STEP);
 
 // 曲の本数(counts)から実プレイ可能な順序を構築する。
 //   1. 進捗不変曲(1st/2nd)を先に消化 → el未出現を維持
@@ -380,9 +385,8 @@ function calcAlgo(target, current, startProg) {
       const cur = dp[idx(pt, gp)];
       if (cur === BIG) continue;
       for (let si = 0; si < NON_EL.length; si++) {
-        const s = NON_EL[si];
-        const np  = pt + s.point;
-        const ngp = gp + s.trigger / STEP;
+        const np  = pt + NON_EL_PT[si];
+        const ngp = gp + NON_EL_GP[si];
         if (np > maxPt || ngp > gpMax) continue;
         const ni = idx(np, ngp);
         if (cur + 1 < dp[ni]) { dp[ni] = cur + 1; from[ni] = si; }
@@ -453,10 +457,10 @@ function doCalc() {
   const toInt = v => Math.max(0, parseInt(v, 10) || 0);
   appState.target           = toInt(document.getElementById('inp-target').value);
   appState.current          = Math.min(appState.target, toInt(document.getElementById('inp-current').value));
-  appState.initialProgress  = Math.min(100, Math.max(0, parseInt(document.getElementById('inp-progress').value, 10) || 0));
+  appState.initialProgress  = Math.min(PROGRESS_CAP, toInt(document.getElementById('inp-progress').value));
 
-  if (appState.target - appState.current > 20000) {
-    document.getElementById('result-rows').innerHTML = '<div class="placeholder warn">目標−現在のポイントは20000以下にしてください</div>';
+  if (appState.target - appState.current > MAX_DIFF) {
+    document.getElementById('result-rows').innerHTML = `<div class="placeholder warn">目標−現在のポイントは${MAX_DIFF.toLocaleString()}以下にしてください</div>`;
     document.getElementById('summary').style.display   = 'none';
     document.getElementById('play-order').style.display = 'none';
     appState.feasible = false;
@@ -467,16 +471,18 @@ function doCalc() {
   appState.counts    = res.counts;
   appState.maxCounts = { ...res.counts };
   appState.feasible  = res.feasible;
-  renderAll();
+  _syncInputsFromState(renderAll());
 }
 
 // ViewModel（純粋関数）
 function buildViewModel() {
   if (!appState.feasible) return { kind: 'infeasible' };
-  const rows = DISPLAY_ORDER.filter(id => (appState.counts[id] || 0) > 0);
+  const rows = DISPLAY_ORDER.filter(id => (appState.maxCounts[id] || 0) > 0);
   const { pts, prog } = sumState();
   if (rows.length === 0) return { kind: 'achieved', pts, prog };
-  return { kind: 'rows', rows, pts, prog };
+  // 手動調整(−ボタン)で消化済みの分を反映した現在進捗から構築する
+  const { seq, ok } = buildSequence(appState.counts, prog);
+  return { kind: 'rows', rows, pts, prog, seq, ok };
 }
 
 function renderAll() {
@@ -484,12 +490,15 @@ function renderAll() {
   _renderRows(vm);
   _renderSummary(vm);
   _renderOrder(vm);
+  return vm;
 }
 
-let _orderRaf = 0;
-function scheduleOrder() {
-  if (_orderRaf) return;
-  _orderRaf = requestAnimationFrame(() => { _orderRaf = 0; _renderOrder(buildViewModel()); });
+// 行数が最大16のため部分更新は行わず、常に renderAll() で全体を再描画する。
+// 連打時の描画回数のみ rAF で1フレームに間引く。
+let _renderRaf = 0;
+function scheduleRender() {
+  if (_renderRaf) return;
+  _renderRaf = requestAnimationFrame(() => { _renderRaf = 0; renderAll(); });
 }
 
 function _renderRows(vm) {
@@ -506,13 +515,14 @@ function _renderRows(vm) {
     const s = BY_ID[id];
     const badge = s.stage ? `<span class="stage-badge">${esc(s.stage)}</span>` : '';
     const max = appState.maxCounts[id] || 0;
+    const cnt = appState.counts[id] || 0;
     return `<div class="result-row" id="row-${esc(id)}">
       <span class="row-name">${esc(s.name)}</span>
       ${badge}
       <div class="counter">
-        <button class="cbtn" data-id="${esc(id)}" data-d="-1">−</button>
-        <span class="cval" id="cv-${esc(id)}" aria-live="polite">${appState.counts[id]}</span>
-        <button class="cbtn" id="inc-${esc(id)}" data-id="${esc(id)}" data-d="1"${appState.counts[id] >= max ? ' disabled' : ''}>+</button>
+        <button class="cbtn" data-id="${esc(id)}" data-d="-1"${cnt <= 0 ? ' disabled' : ''}>−</button>
+        <span class="cval" id="cv-${esc(id)}" aria-live="polite">${cnt}</span>
+        <button class="cbtn" id="inc-${esc(id)}" data-id="${esc(id)}" data-d="1"${cnt >= max ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
   }).join('');
@@ -529,12 +539,10 @@ function _renderSummary(vm) {
   if (vm.kind === 'achieved') {
     summaryEl.style.display = 'none';
     orderEl.style.display   = 'none';
-    document.getElementById('inp-current').value  = appState.target;
-    document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, vm.prog));
     return;
   }
   summaryEl.style.display = 'block';
-  const { pts, prog } = vm;
+  const { pts, prog, ok } = vm;
   const diff = pts - appState.target;
 
   document.getElementById('s-total').textContent  = pts.toLocaleString();
@@ -547,11 +555,10 @@ function _renderSummary(vm) {
 
   const pe = document.getElementById('s-prog');
   const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
-  pe.textContent = dispProg + (prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '');
-  pe.className = 'sval' + (prog >= PROGRESS_CAP ? ' warn' : '');
-
-  document.getElementById('inp-current').value  = diff >= 0 ? appState.target : pts;
-  document.getElementById('inp-progress').value = dispProg;
+  const progWarn  = prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '';
+  const orderWarn = !ok ? '　※ この本数では順序を構築できません（Event Live不足）' : '';
+  pe.textContent = dispProg + progWarn + orderWarn;
+  pe.className = 'sval' + (prog >= PROGRESS_CAP || !ok ? ' warn' : '');
 }
 
 function _renderOrder(vm) {
@@ -559,8 +566,7 @@ function _renderOrder(vm) {
   const list = document.getElementById('order-list');
   if (vm.kind !== 'rows') { card.style.display = 'none'; return; }
 
-  // 手動調整(−ボタン)で消化済みの分を反映した現在進捗から構築する
-  const { seq, ok } = buildSequence(appState.counts, vm.prog);
+  const { seq, ok } = vm;
   if (seq.length === 0 && ok) { card.style.display = 'none'; return; }
 
   card.style.display = 'block';
@@ -576,29 +582,25 @@ function _renderOrder(vm) {
   }).join('');
 }
 
+// 入力欄への計算結果の書き戻し（副作用）。描画関数（_render*）からは分離し、
+// 呼び出しは doCalc() 完了後のみに限定する。+/− 操作（adj）では呼ばない
+// ＝再計算前に手入力した値が +/− 操作で消えないようにするため。
+function _syncInputsFromState(vm) {
+  if (vm.kind === 'achieved') {
+    document.getElementById('inp-current').value  = appState.target;
+    document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, vm.prog));
+    return;
+  }
+  if (vm.kind !== 'rows') return;
+  const diff = vm.pts - appState.target;
+  document.getElementById('inp-current').value  = diff >= 0 ? appState.target : vm.pts;
+  document.getElementById('inp-progress').value = Math.min(PROGRESS_CAP, Math.max(0, vm.prog));
+}
+
 function adj(id, d) {
   const max = appState.maxCounts[id] || 0;
   appState.counts[id] = Math.min(max, Math.max(0, (appState.counts[id] || 0) + d));
-
-  const cv = document.getElementById('cv-' + id);
-  if (cv) cv.textContent = appState.counts[id];
-
-  if (appState.counts[id] === 0) {
-    const vm = buildViewModel();
-    if (vm.kind !== 'rows') { renderAll(); return; }
-    const row = document.getElementById('row-' + id);
-    if (row) row.style.display = 'none';
-    _renderSummary(vm);
-    scheduleOrder();
-    return;
-  }
-
-  const inc = document.getElementById('inc-' + id);
-  if (inc) inc.disabled = appState.counts[id] >= max;
-
-  const vm = buildViewModel();
-  _renderSummary(vm);
-  scheduleOrder();
+  scheduleRender();
 }
 
 document.getElementById('result-rows').addEventListener('click', e => {
@@ -614,6 +616,10 @@ document.getElementById('spec-toggle').addEventListener('click', () => {
   body.classList.toggle('open');
   btn.setAttribute('aria-expanded', body.classList.contains('open') ? 'true' : 'false');
 });
+
+// ドメインロジックの外部公開（第1段階）。ブラウザ経由での回帰テスト用。
+// 第2段階（pst-core.js への分離）は別タスク。
+window.__pst = { calcAlgo, buildSequence, sumState };
 </script>
 </body>
 </html>
