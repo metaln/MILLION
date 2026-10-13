@@ -45,10 +45,13 @@ test('doCalc: 入力の正規化（空・非数・負・小数・上限超え・
   }
 });
 
-test('doCalc: 指数表記（1e3）を1000として読む', { todo: 'parseInt が "1e3" を 1 と読む（改修予定メモ.md）' }, () => {
-  const p = loadPst();
-  p.calc('1e3', '0', '0');
-  assert.equal(p.appState.target, 1000);
+test('doCalc: 指数表記を数値として読む（小数・負は正規化、非有限は0）', () => {
+  const cases = [['1e3', 1000], ['1.5e3', 1500], ['1e-3', 0], ['-1e3', 0], ['1e400', 0], ['Infinity', 0]];
+  for (const [t, want] of cases) {
+    const p = loadPst();
+    p.calc(t, '0', '0');
+    assert.equal(p.appState.target, want, `入力 ${t}`);
+  }
 });
 
 test('doCalc: 目標−現在の上限 MAX_DIFF ちょうどは計算し、+1 で警告して結果を隠す', () => {

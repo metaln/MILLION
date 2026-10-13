@@ -7,8 +7,6 @@
 // - 「EL解をEL無し解より優先」の分岐: EL 1本=3000pt に対し非EL曲は最大600ptのため、
 //   総プレイ回数最小の比較と常に同じ解を選ぶ（等価。needed 2900〜20000 × 進捗6種の19,470件で差分0を実測。2026-10-13）
 // - buildSequence の guard 上限: 毎反復 push か break のため上限に達しない
-// - buildSequence で counts.el が進捗由来の出現回数より多い場合（末尾へ余りELを置く分岐）:
-//   calcAlgo の解と −ボタン操作からは到達しない。仕様未確定のため固定しない（改修予定メモ.md）
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -154,6 +152,15 @@ test('buildSequence: 開始進捗100以上は先頭でELを消化し、ELが足�
   assert.deepEqual(buildSequence({ el: 1, mm1: 1 }, 200), { seq: [EL], ok: false });
 });
 
+test('buildSequence: 進捗由来の出現回数より EL が多ければ、余りを順序へ置かず ok=false', () => {
+  assert.deepEqual(buildSequence({ mm1: 1, el: 1 }, 0), { seq: [BY_ID.mm1], ok: false });
+  assert.deepEqual(buildSequence({ el: 1 }, 99), { seq: [], ok: false });
+  assert.deepEqual(buildSequence({ mm3: 2, el: 2 }, 0), { seq: [BY_ID.mm3, BY_ID.mm3, EL], ok: false });
+  // 対照: 出現回数どおりの EL は成立
+  assert.deepEqual(buildSequence({ el: 1 }, 100), { seq: [EL], ok: true });
+  assert.deepEqual(buildSequence({ mm3: 2, el: 1 }, 0), { seq: [BY_ID.mm3, BY_ID.mm3, EL], ok: true });
+});
+
 test('buildSequence: 負の開始進捗（EL先行消化後）でも3rdを順に打てる', () => {
   assert.deepEqual(buildSequence({ mm3: 2 }, -100), { seq: [BY_ID.mm3, BY_ID.mm3], ok: true });
 });
@@ -177,10 +184,9 @@ test('sumState: 消化済み本数（max−残り）を加算し、未知IDは�
 test('buildViewModel: 種別の判定（infeasible は他の値に関係なく優先 / rows 0件は achieved）', () => {
   const p = loadPst();
   assert.deepEqual(p.buildViewModel({ feasible: false, counts: { mm3: 1 }, maxCounts: { mm3: 1 } }), { kind: 'infeasible' });
-  Object.assign(p.appState, { current: 500, initialProgress: 20 });
-  assert.deepEqual(p.buildViewModel({ feasible: true, counts: {}, maxCounts: {} }), { kind: 'achieved', pts: 500, prog: 20 });
+  assert.deepEqual(p.buildViewModel({ feasible: true, current: 500, initialProgress: 20, counts: {}, maxCounts: {} }), { kind: 'achieved', pts: 500, prog: 20 });
   // maxCounts に未知IDだけ → 表示行なし → achieved
-  assert.equal(p.buildViewModel({ feasible: true, counts: { zzz: 1 }, maxCounts: { zzz: 1 } }).kind, 'achieved');
+  assert.equal(p.buildViewModel({ feasible: true, current: 0, initialProgress: 0, counts: { zzz: 1 }, maxCounts: { zzz: 1 } }).kind, 'achieved');
 });
 
 test('buildViewModel: プレイ順序は −ボタンで消化した後の進捗から組む', () => {
@@ -200,9 +206,12 @@ test('buildViewModel: プレイ順序は −ボタンで消化した後の進捗
   assert.equal(vm.seq[0].id, 'el');
 });
 
-test('buildViewModel: 合計・進捗は引数 state から求める（appState を読まない）', { todo: 'sumState が appState を直読み（改修予定メモ.md）' }, () => {
+test('buildViewModel: 合計・進捗は引数 state から求める（appState を読まない）', () => {
   const p = loadPst();
   Object.assign(p.appState, { current: 0, initialProgress: 0, counts: {}, maxCounts: {} });
   const vm = p.buildViewModel({ feasible: true, current: 100, initialProgress: 30, counts: { mm1: 0 }, maxCounts: { mm1: 1 } });
-  assert.deepEqual({ pts: vm.pts, prog: vm.prog }, { pts: 300, prog: 30 });
+  assert.deepEqual({ kind: vm.kind, pts: vm.pts, prog: vm.prog }, { kind: 'rows', pts: 300, prog: 30 });
+  // 達成表示の分岐も state から求める
+  const done = p.buildViewModel({ feasible: true, current: 700, initialProgress: 40, counts: {}, maxCounts: {} });
+  assert.deepEqual(done, { kind: 'achieved', pts: 700, prog: 40 });
 });

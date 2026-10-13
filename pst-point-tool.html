@@ -341,6 +341,7 @@ const NON_EL_GP = Int8Array.from(NON_EL, s => s.trigger / STEP);
 //   1. 進捗不変曲(1st/2nd)を先に消化 → el未出現を維持
 //   2. 進捗増加曲(3rd)を打ち、進捗100到達ごとにEvent Liveを消化(-100)
 // counts通りに並べ切れれば ok=true。手動調整でel不足等が生じると ok=false。
+// 進捗が100に届かず出現しないelが余った場合も ok=false（順序へ置かない）。
 function buildSequence(counts, startProg) {
   const remain = { ...counts };
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -357,10 +358,7 @@ function buildSequence(counts, startProg) {
     // 進捗不変曲 → 進捗増加曲の順に1本選ぶ
     const pick = FLAT_SONGS.find(id => (remain[id] || 0) > 0)
               ?? PROGRESS_SONGS.find(id => (remain[id] || 0) > 0);
-    if (!pick) {
-      if ((remain.el || 0) > 0) { seq.push(EL); remain.el--; prog -= PROGRESS_CAP; continue; }
-      break;
-    }
+    if (!pick) break;   // 残りがELだけでも出現していないため打てない（ok=false）
     const s = BY_ID[pick];
     seq.push(s); remain[pick]--; prog += s.trigger;
   }
@@ -455,20 +453,21 @@ function calcAlgo(target, current, startProg) {
 
 // 残り本数(counts)を maxCounts から引いた「消化済み本数」を現在ポイント・進捗へ加算する。
 // -ボタン＝1本消化 → 消化済みが増える → 合計ポイントが増える。
-function sumState() {
-  let pts = 0, prog = appState.initialProgress;
-  for (const id of Object.keys(appState.maxCounts)) {
+function sumState(state = appState) {
+  let pts = 0, prog = state.initialProgress;
+  for (const id of Object.keys(state.maxCounts)) {
     const s = BY_ID[id];
     if (!s) continue;
-    const done = (appState.maxCounts[id] || 0) - (appState.counts[id] || 0);
+    const done = (state.maxCounts[id] || 0) - (state.counts[id] || 0);
     pts  += s.point * done;
     prog += s.trigger * done;
   }
-  return { pts: appState.current + pts, prog };
+  return { pts: state.current + pts, prog };
 }
 
 function doCalc() {
-  const toInt = v => Math.max(0, parseInt(v, 10) || 0);
+  // parseInt は "1e3" を 1 と読むため Number で読む。非有限（Infinity・非数）は0
+  const toInt = v => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; };
   appState.target           = toInt(document.getElementById('inp-target').value);
   appState.current          = Math.min(appState.target, toInt(document.getElementById('inp-current').value));
   appState.initialProgress  = Math.min(PROGRESS_CAP, toInt(document.getElementById('inp-progress').value));
@@ -492,7 +491,7 @@ function doCalc() {
 function buildViewModel(state) {
   if (!state.feasible) return { kind: 'infeasible' };
   const rows = DISPLAY_ORDER.filter(id => (state.maxCounts[id] || 0) > 0);
-  const { pts, prog } = sumState();
+  const { pts, prog } = sumState(state);
   if (rows.length === 0) return { kind: 'achieved', pts, prog };
   // 手動調整(−ボタン)で消化済みの分を反映した現在進捗から構築する
   const { seq, ok } = buildSequence(state.counts, prog);
