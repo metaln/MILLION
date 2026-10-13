@@ -249,16 +249,16 @@ h1 {
       <button class="btn-calc" id="btn-calc">計算する</button>
       <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body">
-        <li>Event Liveが出現している場合（進捗100）、そのまま進捗100で計算できます。プレイ順序の先頭にEvent Liveの消化が入ります。</li>
-        <li>1st・2ndが含まれる場合、3rdより先に消化してください。進捗増加によりEvent Liveが出現し、プレイできなくなる可能性があります。</li>
         <li>進捗が100になるとEvent Live（ポイント+3000、進捗−100）が出現します。</li>
+        <li>Event Liveが出現中のときは、進捗に100を入れて計算できます。プレイ順序の先頭はEvent Liveになります。</li>
+        <li>計算結果に1st・2ndがある場合は、3rdより先にプレイしてください。3rdで進捗が100に達するとEvent Liveが出現し、1st・2ndをプレイできなくなることがあります。</li>
       </ul>
     </div>
   </div>
 
   <div class="right">
     <div id="result-rows" aria-live="polite">
-      <div class="placeholder">計算するを押すと結果が表示されます</div>
+      <div class="placeholder">「計算する」を押すと結果が表示されます</div>
     </div>
     <div id="summary" style="display:none" class="summary">
       <div class="srow"><span>合計ポイント</span><span class="sval" id="s-total">0</span></div>
@@ -297,7 +297,7 @@ const BY_ID = Object.fromEntries(SONGS.map(s => [s.id, s]));
 const DISPLAY_ORDER = SONGS.map(s => s.id);
 const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1','4m1','2m1','mmw','6mw','4mw','2mw'];
 
-// ── ゲーム仕様の定数（SONGS定義から導出し単一情報源化）──
+// ── ゲーム仕様の定数（値はSONGS定義から求め、2か所に書かない）──
 const EL = BY_ID.el;                 // Event Live: point 3000
 const PROGRESS_CAP = 100;            // 進捗100到達でEvent Live出現
 const STEP = 10;                     // 進捗の量子（3rd曲triggerの最大公約数）
@@ -312,7 +312,7 @@ try {
   FILL_ORDER.forEach(id => {
     const t = BY_ID[id].trigger;
     if (t < 0 || t % STEP !== 0 || t >= PROGRESS_CAP)
-      throw new Error(`song ${id}: trigger は ${STEP} の非負倍数かつ ${PROGRESS_CAP} 未満である必要があります`);
+      throw new Error(`曲 ${id}: trigger は 0 以上 ${PROGRESS_CAP} 未満の ${STEP} の倍数にしてください`);
   });
 } catch (e) {
   const rowsEl = document.getElementById('result-rows');
@@ -437,7 +437,7 @@ function calcAlgo(target, current, startProg) {
     gp -= s.trigger / STEP;
   }
   // 不変条件チェック: 復元した counts が best と一致するか再計算で検証する。
-  // 上の復元ガード発火時など不完全な counts を「正解」として返さないための安全網。
+  // 上の復元ガードで途中終了したときなど、不完全な counts を「正解」として返さないため。
   let sumPt = 0, sumGp = 0;
   for (const [id, n] of Object.entries(counts)) {
     const s = BY_ID[id];
@@ -474,7 +474,7 @@ function doCalc() {
   appState.initialProgress  = Math.min(PROGRESS_CAP, toInt(document.getElementById('inp-progress').value));
 
   if (appState.target - appState.current > MAX_DIFF) {
-    document.getElementById('result-rows').innerHTML = `<div class="placeholder warn">目標−現在のポイントは${MAX_DIFF.toLocaleString()}以下にしてください</div>`;
+    document.getElementById('result-rows').innerHTML = `<div class="placeholder warn">目標と現在のポイントの差は${MAX_DIFF.toLocaleString()}以下にしてください</div>`;
     document.getElementById('summary').style.display   = 'none';
     document.getElementById('play-order').style.display = 'none';
     appState.feasible = false;
@@ -518,7 +518,7 @@ function scheduleRender() {
 function _renderRows(vm) {
   const wrap = document.getElementById('result-rows');
   if (vm.kind === 'infeasible') {
-    wrap.innerHTML = '<div class="placeholder warn">ポイントを丁度にできません</div>';
+    wrap.innerHTML = '<div class="placeholder warn">目標ポイントにぴったり合う組み合わせがありません</div>';
     return;
   }
   if (vm.kind === 'achieved') {
@@ -570,7 +570,7 @@ function _renderSummary(vm) {
   const pe = document.getElementById('s-prog');
   const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
   const progWarn  = prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '';
-  const orderWarn = !ok ? '　※ この本数では順序を構築できません（Event Live不足）' : '';
+  const orderWarn = !ok ? '　※ この本数ではプレイ順序を組めません（Event Liveが足りません）' : '';
   pe.textContent = dispProg + progWarn + orderWarn;
   pe.className = 'sval' + (prog >= PROGRESS_CAP || !ok ? ' warn' : '');
 }
@@ -585,7 +585,7 @@ function _renderOrder(vm) {
 
   card.style.display = 'block';
   if (!ok) {
-    list.innerHTML = '<li class="order-error">この本数では順序を構築できません（進捗100到達時にEvent Liveが不足）</li>';
+    list.innerHTML = '<li class="order-error">この本数ではプレイ順序を組めません（進捗が100に達したときのEvent Liveが足りません）</li>';
     return;
   }
   list.innerHTML = seq.map(s => {
