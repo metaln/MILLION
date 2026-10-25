@@ -401,7 +401,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   const p = loadMove();
   const status = () => p.el('result-status').textContent;
   p.batch('a,595\nb,abc\nc,57120');
-  assert.equal(status(), 'シアター形式で2人を計算しました。読めなかった行 1行');
+  assert.equal(status(), 'シアター形式で2人分を計算しました。読めなかった行は1行です');
   // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
   p.el('result-status').textContent = 'sentinel';
   p.clickResult('rare-person', 1);
@@ -409,7 +409,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   assert.equal(status(), 'sentinel');
   p.clickView('all');
   p.batch('a,595');
-  assert.equal(status(), 'シアター形式で1人を計算しました。読めなかった行 0行');
+  assert.equal(status(), 'シアター形式で1人分を計算しました。読めなかった行は0行です');
   for (const text of ['', 'a\nb,abc']) {
     p.batch('a,595');
     p.batch(text);
@@ -417,7 +417,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   }
   // 1人用へ切り替えると1人用の要約になる
   p.calc(595);
-  assert.equal(status(), 'シアター形式で主な候補1件、その他の候補0件を計算しました');
+  assert.equal(status(), 'シアター形式で計算しました。主な候補は1件、その他の候補は0件です');
 });
 
 test('一括: 名前の HTML 特殊文字はエスケープして表示する', () => {

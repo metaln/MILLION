@@ -250,7 +250,7 @@ h1 {
       <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body">
         <li>進捗が100になるとEvent Live（ポイント+3000、進捗−100）が出現します。</li>
-        <li>Event Liveが出現中のときは、進捗に100を入れて計算できます。プレイ順序の先頭はEvent Liveになります。</li>
+        <li>Event Liveが出現しているときは、進捗に100を入れて計算できます。プレイ順序の先頭はEvent Liveになります。</li>
         <li>計算結果に1st・2ndがある場合は、3rdより先にプレイしてください。3rdで進捗が100に達するとEvent Liveが出現し、1st・2ndをプレイできなくなることがあります。</li>
       </ul>
     </div>
@@ -300,13 +300,13 @@ const FILL_ORDER = ['mm3','6m3','4m3','2m3','mm2','6m2','4m2','2m2','mm1','6m1',
 // ── ゲーム仕様の定数（値はSONGS定義から求め、2か所に書かない）──
 const EL = BY_ID.el;                 // Event Live: point 3000
 const PROGRESS_CAP = 100;            // 進捗100到達でEvent Live出現
-const STEP = 10;                     // 進捗の量子（3rd曲triggerの最大公約数）
+const STEP = 10;                     // 進捗の刻み幅（3rd曲triggerの最大公約数）
 const MAX_DIFF = 20000;              // 目標−現在ポイントの入力上限（DPのmaxPt上限と対応）
 EL.trigger = -PROGRESS_CAP;          // Event Live消化時の進捗減少量をPROGRESS_CAPから導出（二重管理防止）
 
 // 前提検証: 非el曲のtriggerはSTEPの非負倍数（DPの進捗圧縮が成立する条件）かつ
 // PROGRESS_CAP未満（calcAlgoの閉じた式とbuildSequenceの逐次判定が一致する条件）
-// トップレベルthrowだと以降のリスナー登録に到達せず全ボタン無言停止になるためtry/catchで包み、
+// トップレベルでthrowすると以降のリスナー登録まで進まず、どのボタンもエラー表示なしで動かなくなるためtry/catchで包み、
 // 失敗時はresult-rowsへ設定エラーを表示する（DOM要素はHTML側に既存）。
 try {
   FILL_ORDER.forEach(id => {
@@ -325,7 +325,7 @@ try {
   }
 }
 
-// HTML特殊文字エスケープ（innerHTML描画の防御。将来データ外部化時の保険）
+// HTML特殊文字エスケープ（innerHTML描画の防御。曲データを外部から読むようにしたときに備える）
 const esc = s => String(s).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -337,7 +337,7 @@ const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（calcAlgo で使
 const NON_EL_PT = Int16Array.from(NON_EL, s => s.point);
 const NON_EL_GP = Int8Array.from(NON_EL, s => s.trigger / STEP);
 
-// 曲の本数(counts)から実プレイ可能な順序を構築する。
+// 曲の本数(counts)から、実際にプレイできる順序を組む。
 //   1. 進捗不変曲(1st/2nd)を先に消化 → el未出現を維持
 //   2. 進捗増加曲(3rd)を打ち、進捗100到達ごとにEvent Liveを消化(-100)
 // counts通りに並べ切れれば ok=true。手動調整でel不足等が生じると ok=false。

@@ -353,10 +353,10 @@ function specItems(f) {
     `${MOVE_NAME.charge}: ${fmt(C.point)}ptとトリガー${fmt(C.trigger)}個を得ます。`,
     `${MOVE_NAME.release}: トリガー${fmt(-R.trigger)}個を使い、${fmt(R.point)}ptを得ます。`,
     `${MOVE_NAME.bonus}: ${fmt(B.point)}ptを得ます。${bonusRule}`,
-    `トリガー数は0個から数えます。最後のトリガー数が${fmt(TRIGGER_MIN)}〜${fmt(TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
+    `開始時のトリガー数は0個とします。最終トリガー数が${fmt(TRIGGER_MIN)}〜${fmt(TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
     ...(f.rare.length ? [`${MOVE_NAME.bonus}は${bonusLabel(f.likely)}のことがほとんどのため、${bonusLabel(f.rare)}の候補は「その他の候補」に分けます。`] : []),
-    `${MOVE_NAME.release}が${fmt(f.unlikely.release)}回以上で、最後のトリガー数が${fmt(f.unlikely.trigger)}個以上の組み合わせ${f.rare.length ? 'も' : 'は'}、ほとんど起きないため「その他の候補」に分けます。`,
-    `同じ${MOVE_NAME.bonus}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
+    `${MOVE_NAME.release}が${fmt(f.unlikely.release)}回以上で、最終トリガー数が${fmt(f.unlikely.trigger)}個以上の組み合わせ${f.rare.length ? 'も' : 'は'}、ほとんど起きないため「その他の候補」に分けます。`,
+    `同じ${MOVE_NAME.bonus}回数の候補は、最終トリガー数が0に近い順に並べます。`,
   ];
 }
 
@@ -397,9 +397,10 @@ function solve(pt, f) {
   return list;
 }
 
-// トリガー数が0に近い順。同点の並べ方は決めない。現在の定数では、同じボーナス回数の候補どうしの
-// トリガー数の差が、シアターは 484,330、チューンは 64,645 の倍数になる。絶対値が等しい2件があれば
-// 負の側はシアターで −242,165 以下、チューンで −64,645 以下（差が奇数のため）で、下限で除外済み
+// トリガー数が0に近い順。絶対値が等しい2件の並べ方は決めないが、現在の定数ではそうした2件は候補に残らない。
+// 同じボーナス回数の候補どうしのトリガー数の差は、シアターは 484,330、チューンは 64,645 の倍数になる。
+// 絶対値が等しい正負の2件なら、負の側はシアターで −242,165 以下、チューンで −64,645 以下
+// （64,645 が奇数のため半分の値は取れない）になり、どちらも TRIGGER_MIN を下回るため solve が除外する
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
 // 形式 f で主な候補か（ボーナスが0回・5回で、吐きが f.unlikely.release 回以上かつ
@@ -611,9 +612,9 @@ function _renderFieldError(vm) {
 // 計算したとき・形式を切り替えたときに読み上げる短い要約。結果欄の全体（全員の名前・全候補）は読み上げない。
 // 形式の名前を入れる（切り替えの前後で件数が同じでも文言が変わる）。入力のエラーは入力欄のエラー欄が知らせるため空にする
 function statusText(vm) {
-  if (vm.kind === 'list')  return `${vm.formatName}形式で主な候補${vm.likelyCount}件、その他の候補${vm.rareCount}件を計算しました`;
+  if (vm.kind === 'list')  return `${vm.formatName}形式で計算しました。主な候補は${vm.likelyCount}件、その他の候補は${vm.rareCount}件です`;
   if (vm.kind === 'none')  return `${vm.formatName}形式では、指定のポイントに合う組み合わせがありません`;
-  if (vm.kind === 'batch' && vm.people.length > 0) return `${vm.formatName}形式で${vm.people.length}人を計算しました。読めなかった行 ${vm.errors.length}行`;
+  if (vm.kind === 'batch' && vm.people.length > 0) return `${vm.formatName}形式で${vm.people.length}人分を計算しました。読めなかった行は${vm.errors.length}行です`;
   return '';
 }
 const announce = vm => { document.getElementById('result-status').textContent = statusText(vm); };

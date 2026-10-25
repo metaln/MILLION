@@ -361,7 +361,7 @@ test('読み上げ: 結果欄全体は aria-live にせず、計算したとき�
   const status = () => p.el('result-status').textContent;
   assert.equal(status(), '');
   p.calc(57120);
-  assert.equal(status(), 'シアター形式で主な候補1件、その他の候補1件を計算しました');
+  assert.equal(status(), 'シアター形式で計算しました。主な候補は1件、その他の候補は1件です');
   // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
   p.el('result-status').textContent = 'sentinel';
   p.clickResult('rare');
@@ -370,7 +370,7 @@ test('読み上げ: 結果欄全体は aria-live にせず、計算したとき�
   // 件数は表示中のボーナス回数で数えるため、両方の表示へ戻してから計算する
   p.clickView('all');
   p.calc(4605373);
-  assert.equal(status(), 'シアター形式で主な候補3件、その他の候補10件を計算しました');
+  assert.equal(status(), 'シアター形式で計算しました。主な候補は3件、その他の候補は10件です');
   p.calc(1);
   assert.equal(status(), 'シアター形式では、指定のポイントに合う組み合わせがありません');
   // 入力のエラーは入力欄のエラー欄が知らせるため、要約は空にする
@@ -511,10 +511,10 @@ test('仕様: シアター形式の定数から組んだ7項目を表示し、�
     `${N.charge}: ${n(C.point)}ptとトリガー${n(C.trigger)}個を得ます。`,
     `${N.release}: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
     `${N.bonus}: ${n(B.point)}ptを得ます。使えるのは最大${B.counts.at(-1)}回です。`,
-    `トリガー数は0個から数えます。最後のトリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
+    `開始時のトリガー数は0個とします。最終トリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
     `${N.bonus}は0回・5回のことがほとんどのため、1〜4回の候補は「その他の候補」に分けます。`,
-    `${N.release}が${n(U.release)}回以上で、最後のトリガー数が${n(U.trigger)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
-    `同じ${N.bonus}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
+    `${N.release}が${n(U.release)}回以上で、最終トリガー数が${n(U.trigger)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
+    `同じ${N.bonus}回数の候補は、最終トリガー数が0に近い順に並べます。`,
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));
 

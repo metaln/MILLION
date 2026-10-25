@@ -188,7 +188,7 @@ test('切り替え: 1人用の結果を計算した pt のままその形式で�
     groups: [{ title: 'ボーナス 0回', total: 1, rows: [['1', '1', '+455']], empty: false }, EMPTY(5)],
     toggle: null,
   });
-  assert.equal(status(p), 'チューン形式で主な候補1件、その他の候補0件を計算しました');
+  assert.equal(status(p), 'チューン形式で計算しました。主な候補は1件、その他の候補は0件です');
   p.clickFormat('theater');
   assert.deepEqual([html(p), status(p)], [MSG_NONE('シアター'), 'シアター形式では、指定のポイントに合う組み合わせがありません']);
   // チューンで候補なしの pt は、チューンの文言で警告する
@@ -220,7 +220,7 @@ test('切り替え: CSV一括の全員を計算し直し、サマリと要約に
   p.batch('a,3000003\nなし,1\nb,57120\nbad');
   p.clickFormat('tune');
   assert.deepEqual(parseSummary(html(p)), [['計算した人数', '3人'], ['形式', 'チューン'], ['読めなかった行', '1行']]);
-  assert.equal(status(p), 'チューン形式で3人を計算しました。読めなかった行 1行');
+  assert.equal(status(p), 'チューン形式で3人分を計算しました。読めなかった行は1行です');
   assert.deepEqual(p.appState.batch.map(x => [x.name, x.list]), [
     ['a', solveTune(3000003)], ['なし', []], ['b', solveTune(57120)],
   ]);
@@ -299,9 +299,9 @@ test('仕様: チューンへ切り替えると、チューンの定数から組
     `貯め: ${n(C.point)}ptとトリガー${n(C.trigger)}個を得ます。`,
     `吐き: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
     `ボーナス: ${n(B.point)}ptを得ます。回数は0回か5回として計算します。`,
-    `トリガー数は0個から数えます。最後のトリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
-    `吐きが${n(X.release)}回以上で、最後のトリガー数が${n(X.trigger)}個以上の組み合わせは、ほとんど起きないため「その他の候補」に分けます。`,
-    '同じボーナス回数の候補は、最後のトリガー数が0に近い順に並べます。',
+    `開始時のトリガー数は0個とします。最終トリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
+    `吐きが${n(X.release)}回以上で、最終トリガー数が${n(X.trigger)}個以上の組み合わせは、ほとんど起きないため「その他の候補」に分けます。`,
+    '同じボーナス回数の候補は、最終トリガー数が0に近い順に並べます。',
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));
   // 開閉の状態は切り替えで変えない。シアターへ戻すと開いたときの文言に戻る
