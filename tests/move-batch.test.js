@@ -50,6 +50,9 @@ const MSG_NOT_INT = 'ポイントが0以上の整数ではありません';
 const MSG_NO_SEP = '区切り（カンマかタブ）がありません';
 const MSG_NO_NAME = '名前がありません';
 const MSG_OVER = 'ポイントは99,999,999以下にしてください';
+const MSG_COLS = '列が多すぎます（区切りは名前とポイントの間の1か所だけにしてください）';
+const MSG_GROUP = '桁区切りは3桁ごとにしてください';
+const MSG_AMBIG = '名前の末尾の数字がポイントの一部かもしれません。名前とポイントの間にカンマかタブを入れてください';
 const people = (...xs) => xs.map(([line, name, pt]) => ({ line, name, pt }));
 
 // 1人用の画面で同じptを計算したときの行（ボーナス回数を先頭に足す）。主な候補と別枠を分けて返す
@@ -116,6 +119,40 @@ test('parseCsv: 読めない行（区切りなし・名前なし・整数でな�
       { line: 12, raw: 'i,100,000,000', reason: MSG_OVER },
     ],
   });
+});
+
+test('parseCsv: pt の桁区切りは3桁ごとのカンマか空白だけ。3列目以降の数字を連結しない', () => {
+  const bad = ['a,460537,3', 'a,4,6053,73', 'a,3,892 771', 'a,1000,000', 'a, 1 2', 'a,,595', 'かぶりこ\t4605373\t5', 'a\tb\t5', 'a,1\t2'];
+  assert.deepEqual(parseCsv(['z,1', ...bad].join('\n')), {
+    people: people([1, 'z', 1]),
+    errors: [
+      { line: 2, raw: 'a,460537,3', reason: MSG_GROUP },
+      { line: 3, raw: 'a,4,6053,73', reason: MSG_GROUP },
+      // カンマと空白の混在
+      { line: 4, raw: 'a,3,892 771', reason: MSG_GROUP },
+      { line: 5, raw: 'a,1000,000', reason: MSG_GROUP },
+      { line: 6, raw: 'a, 1 2', reason: MSG_GROUP },
+      { line: 7, raw: 'a,,595', reason: MSG_GROUP },
+      // タブが pt 側に残る行は列が多い（数字でなくても同じ）
+      { line: 8, raw: 'かぶりこ\t4605373\t5', reason: MSG_COLS },
+      { line: 9, raw: 'a\tb\t5', reason: MSG_COLS },
+      { line: 10, raw: 'a,1\t2', reason: MSG_COLS },
+    ],
+  });
+  // 対照: 区切りなし・3桁ごとのカンマ・3桁ごとの空白・1〜3桁の先頭・末尾の pt の前の空白は読む
+  assert.deepEqual(parseCsv('a,4605373\nb,1,000\nc,12 345 678\nd,999\ne,4605373 pt\nf,1,000,000PT').people,
+    people([1, 'a', 4605373], [2, 'b', 1000], [3, 'c', 12345678], [4, 'd', 999], [5, 'e', 4605373], [6, 'f', 1000000]));
+});
+
+test('parseCsv: カンマ区切りで名前が数字で終わり pt が3桁区切りで始まる行は、名前と pt の境目が読めないためエラー', () => {
+  const bad = ['かぶりこ 4,605,373', '4,605,373pt', 'かぶりこ ４，６０５，３７３', '1,595', 'かぶりこ 12,345', 'かぶりこ 4,605 373', 'x 123,456'];
+  assert.deepEqual(parseCsv(['z,1', ...bad].join('\n')), {
+    people: people([1, 'z', 1]),
+    errors: bad.map((raw, i) => ({ line: i + 2, raw, reason: MSG_AMBIG })),
+  });
+  // 対照: 名前の末尾の数字が空白で離れていない・4桁以上・pt が3桁区切りで始まらない・タブ区切りは、そのまま読む
+  assert.deepEqual(parseCsv('p1,595\nかぶりこ 1234,567\nかぶりこ 4,4605373\nかぶりこ 4\t605\nかぶりこ 4,60').people,
+    people([1, 'p1', 595], [2, 'かぶりこ 1234', 567], [3, 'かぶりこ 4', 4605373], [4, 'かぶりこ 4', 605], [5, 'かぶりこ 4', 60]));
 });
 
 test('parseCsv: 空・空行だけは0件。同じ名前は別の人として両方読む', () => {

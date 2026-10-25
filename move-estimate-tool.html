@@ -346,9 +346,21 @@ const BONUS_VIEWS = ['all', ...LIKELY_BONUS.map(String)];
 const viewLabel = v => (v === 'all' ? '両方' : `${v}回`);
 const shownBonus = view => BONUS_ORDER.filter(c => view === 'all' || String(c) === view || !LIKELY_BONUS.includes(c));
 
+// ptの文字列を { pt, digits } か { reason } にする。全角は半角へ寄せ、前後の空白と末尾の pt を除く。
+// 受け付けるのは数字だけか、3桁ごとにカンマか空白で区切った数字（区切りの混在は不可）。0以上の整数に限る（小数・指数表記・負は不可）
+const PT_FORMAT = /^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,3}(?: \d{3})+)$/;
+function parsePt(text) {
+  const digits = String(text).normalize('NFKC').trim().replace(/\s*pt$/i, '');
+  if (!PT_FORMAT.test(digits))
+    return { reason: /\d/.test(digits) && /^[\d, ]+$/.test(digits) ? '桁区切りは3桁ごとにしてください' : 'ポイントが0以上の整数ではありません' };
+  const pt = Number(digits.replace(/[, ]/g, ''));
+  if (pt > MAX_PT) return { reason: `ポイントは${MAX_PT.toLocaleString()}以下にしてください` };
+  return { pt, digits };
+}
+
 // 貼り付けたCSVを人ごとの { line, name, pt } と、読めなかった行 { line, raw, reason } に分ける。
-// 名前は最初の区切りより前（名前にカンマを含む行は正しく読めない）。
-// ptは全角を半角へ寄せ、桁区切り・空白・末尾の pt を除いてから、0以上の整数だけを受け付ける（小数・指数表記・負は不可）
+// 名前は最初の区切りより前（名前にカンマを含む行は正しく読めない）。ptは parsePt で読む。
+// 区切りがカンマで、名前が数字で終わり pt が3桁区切りで始まる行（かぶりこ 4,605,373）は、境目が読めないためエラー
 function parseCsv(text) {
   const people = [], errors = [];
   let first = true;
@@ -362,13 +374,15 @@ function parseCsv(text) {
     const sep = s.search(/[,，\t]/);
     if (sep < 0) return fail('区切り（カンマかタブ）がありません');
     const name = s.slice(0, sep).trim();
-    const ptText = s.slice(sep + 1).normalize('NFKC').replace(/[,\s]/g, '').replace(/pt$/i, '');
-    if (isFirst && !/\d/.test(ptText)) return;   // 見出し行
+    const rest = s.slice(sep + 1);
+    if (isFirst && !/\d/.test(rest.normalize('NFKC'))) return;   // 見出し行
     if (!name) return fail('名前がありません');
-    if (!/^\d+$/.test(ptText)) return fail('ポイントが0以上の整数ではありません');
-    const pt = Number(ptText);
-    if (pt > MAX_PT) return fail(`ポイントは${MAX_PT.toLocaleString()}以下にしてください`);
-    people.push({ line, name, pt });
+    if (rest.includes('\t')) return fail('列が多すぎます（区切りは名前とポイントの間の1か所だけにしてください）');
+    const r = parsePt(rest);
+    if (r.reason) return fail(r.reason);
+    if (s[sep] !== '\t' && /(?:^|\s)\d{1,3}$/.test(name.normalize('NFKC')) && /^\d{3}(?:[, ]|$)/.test(r.digits))
+      return fail('名前の末尾の数字がポイントの一部かもしれません。名前とポイントの間にカンマかタブを入れてください');
+    people.push({ line, name, pt: r.pt });
   });
   return { people, errors };
 }
