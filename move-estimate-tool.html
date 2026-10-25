@@ -128,6 +128,15 @@ h1, .group-title { text-wrap: balance; }
   text-align: center;
 }
 .warn { color: #D42020; font-weight: 600; }
+/* 画面には出さず読み上げだけに渡す（計算結果の短い要約）*/
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 /* ─── Summary（スクロールしても指定のポイントが見えるよう上端に固定）─── */
 .summary {
@@ -263,9 +272,10 @@ h1, .group-title { text-wrap: balance; }
   </div>
 
   <div class="right">
-    <div id="result" aria-live="polite">
+    <div id="result">
       <div class="placeholder">「計算する」を押すと結果が表示されます</div>
     </div>
+    <p id="result-status" class="visually-hidden" role="status"></p>
   </div>
 </div>
 
@@ -497,6 +507,16 @@ function _renderFieldError(vm) {
   set('inp-csv', vm.kind === 'batch' ? [vm.message, ...vm.errors].filter(Boolean).join('\n') : '');
 }
 
+// 計算したときに読み上げる短い要約。結果欄の全体（全員の名前・全候補）は読み上げない。
+// 入力のエラーは入力欄のエラー欄が知らせるため空にする
+function statusText(vm) {
+  if (vm.kind === 'list')  return `主な候補${vm.likelyCount}件、その他の候補${vm.rareCount}件を計算しました`;
+  if (vm.kind === 'none')  return '指定のポイントに合う組み合わせがありません';
+  if (vm.kind === 'batch' && vm.people.length > 0) return `${vm.people.length}人を計算しました。読めなかった行 ${vm.errors.length}行`;
+  return '';
+}
+const announce = vm => { document.getElementById('result-status').textContent = statusText(vm); };
+
 function renderAll() {
   const vm = buildViewModel(appState);
   document.getElementById('result').innerHTML = _resultHtml(vm);
@@ -563,13 +583,13 @@ document.getElementById('result').addEventListener('click', e => {
 
 document.getElementById('batch-form').addEventListener('submit', e => {
   e.preventDefault();
-  doBatch();
+  announce(doBatch());
 });
 
 // 入力欄での Enter はフォームの標準動作で submit になる。送信先は無いため既定動作は止める
 document.getElementById('calc-form').addEventListener('submit', e => {
   e.preventDefault();
-  doCalc();
+  announce(doCalc());
 });
 document.getElementById('spec-toggle').addEventListener('click', () => {
   const body = document.getElementById('spec-body');

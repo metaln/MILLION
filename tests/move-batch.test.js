@@ -313,6 +313,29 @@ test('一括: 行エラーと入力全体のエラーは状態を分ける。読
   assert.deepEqual(csvError(p), [`全体の警告\n2行目「b,abc」: ${MSG_NOT_INT}`, 'true']);
 });
 
+test('読み上げ: 一括で計算したときだけ人数と読めなかった行数を要約へ書く。誰も計算できなければ空', () => {
+  const p = loadMove();
+  const status = () => p.el('result-status').textContent;
+  p.batch('a,595\nb,abc\nc,57120');
+  assert.equal(status(), '2人を計算しました。読めなかった行 1行');
+  // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
+  p.el('result-status').textContent = 'sentinel';
+  p.clickResult('rare-person', 1);
+  p.clickView('5');
+  assert.equal(status(), 'sentinel');
+  p.clickView('all');
+  p.batch('a,595');
+  assert.equal(status(), '1人を計算しました。読めなかった行 0行');
+  for (const text of ['', 'a\nb,abc']) {
+    p.batch('a,595');
+    p.batch(text);
+    assert.equal(status(), '', JSON.stringify(text));
+  }
+  // 1人用へ切り替えると1人用の要約になる
+  p.calc(595);
+  assert.equal(status(), '主な候補1件、その他の候補0件を計算しました');
+});
+
 test('一括: 名前の HTML 特殊文字はエスケープして表示する', () => {
   const p = loadMove();
   p.batch(`<img src=x onerror=alert(1)>,595\n"a'&b,634`);

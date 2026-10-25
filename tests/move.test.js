@@ -369,6 +369,31 @@ test('フォーム: 入力欄と submit ボタンを form に入れ、submit で
   assert.deepEqual(result(p).summary, SUMMARY(595, 1, 0));
 });
 
+test('読み上げ: 結果欄全体は aria-live にせず、計算したときだけ短い要約を role=status の要素へ書く', () => {
+  assert.equal(HTML.includes('<div id="result">'), true);
+  assert.equal(HTML.includes('<p id="result-status" class="visually-hidden" role="status"></p>'), true);
+  assert.equal(/\n\.visually-hidden \{[^}]*clip-path: inset\(50%\);[^}]*\}/.test(HTML), true);
+  const p = loadMove();
+  const status = () => p.el('result-status').textContent;
+  assert.equal(status(), '');
+  p.calc(57120);
+  assert.equal(status(), '主な候補1件、その他の候補1件を計算しました');
+  // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
+  p.el('result-status').textContent = 'sentinel';
+  p.clickResult('rare');
+  p.clickView('0');
+  assert.equal(status(), 'sentinel');
+  // 件数は表示中のボーナス回数で数えるため、両方の表示へ戻してから計算する
+  p.clickView('all');
+  p.calc(4605373);
+  assert.equal(status(), '主な候補3件、その他の候補10件を計算しました');
+  p.calc(1);
+  assert.equal(status(), '指定のポイントに合う組み合わせがありません');
+  // 入力のエラーは入力欄のエラー欄が知らせるため、要約は空にする
+  p.calc('abc');
+  assert.equal(status(), '');
+});
+
 test('結果欄: data-action の無い箇所のクリックは描画し直さない', () => {
   const p = loadMove();
   p.calc(57120);
