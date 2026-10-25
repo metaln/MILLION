@@ -2,7 +2,6 @@
 // 対象: move-estimate-tool.html（solve / buildViewModel / 描画 / doCalc / イベント委譲 / HTML の静的な取り決め）
 //
 // 観点表で外したもの（理由）:
-// - 入力欄の空白・全角数字: <input type=number> がブラウザ側で受け付けない
 // - トリガー数 −10,001・999,999: 595×貯め − 180×吐き は常に5の倍数で、これらの値は作れない。
 //   範囲の外側は −10,005 と 1,000,000、内側は −10,000 と 999,995 で確かめる（0〜100,000 の全候補で5の倍数を実測。2026-10-25）
 // - 同じボーナス回数でトリガー数の絶対値が等しい2件（並び順の同点）: 負の側が −242,165 以下になり下限で除外される
@@ -327,12 +326,27 @@ test('doCalc: 上限 99,999,999（8桁）ちょうどは計算し、+1 は入力
   assert.deepEqual([fieldError(p), result(p).summary], [['', 'false'], SUMMARY(595, 1, 0)]);
 });
 
-test('doCalc: 入力の正規化（空・非数・負・小数・指数表記・非有限）', () => {
-  const cases = [['', 0], ['abc', 0], ['-5', 0], ['595.9', 595], ['1e3', 1000], ['-1e3', 0], ['1e400', 0], ['Infinity', 0]];
+test('doCalc: 指定のポイントは CSV と同じ書式で読む（桁区切り・末尾 pt・全角・前後の空白）', () => {
+  const cases = [['4,560,338pt', 4560338], ['４６０５３７３', 4605373], ['３，９００，２０５ｐｔ', 3900205], ['595 pt', 595],
+    [' 1 190 ', 1190], ['0', 0], ['99,999,999', 99999999]];
   for (const [v, want] of cases) {
     const p = loadMove();
     p.calc(v);
-    assert.equal(p.appState.pt, want, `入力 ${JSON.stringify(v)}`);
+    assert.deepEqual([p.appState.pt, fieldError(p), result(p).summary[0]], [want, ['', 'false'], ['指定のポイント', want.toLocaleString()]],
+      `入力 ${JSON.stringify(v)}`);
+  }
+});
+
+test('doCalc: 空・整数でない・桁区切りの崩れは入力欄の直下にエラーを出し、計算しない（前の結果を残さない）', () => {
+  const NOT_INT = 'ポイントが0以上の整数ではありません';
+  const cases = [['', 'ポイントを入力してください'], [' \t ', 'ポイントを入力してください'], ['abc', NOT_INT], ['-5', NOT_INT],
+    ['595.9', NOT_INT], ['1e3', NOT_INT], ['Infinity', NOT_INT], ['595pts', NOT_INT], ['1,0000', '桁区切りは3桁ごとにしてください'],
+    ['100,000,000', MSG_OVER]];
+  for (const [v, msg] of cases) {
+    const p = loadMove();
+    p.calc(595);
+    p.calc(v);
+    assert.deepEqual([fieldError(p), p.el('result').innerHTML, p.appState.list], [[msg, 'true'], '', null], `入力 ${JSON.stringify(v)}`);
   }
 });
 
@@ -346,7 +360,8 @@ test('初期表示: HTML の案内文と idle の描画が一致する', () => {
 test('フォーム: 入力欄と submit ボタンを form に入れ、submit で計算して既定動作（送信）を止める', () => {
   const p = loadMove();
   const inner = p.el('calc-form').innerHTML;
-  assert.equal(inner.includes('<input type="number" id="inp-pt"'), true);
+  // 桁区切り・末尾 pt・全角を受け付けるため type=number にしない（数字キーボードは inputmode で出す）
+  assert.equal(inner.includes('<input type="text" id="inp-pt" value="0" inputmode="numeric" autocomplete="off"'), true);
   assert.equal(inner.includes('<button type="submit" class="btn-calc" id="btn-calc">計算する</button>'), true);
   // キーボード操作を手作りしない: 入力欄・ボタンに直接のリスナーは置かない
   assert.deepEqual([p.el('inp-pt').listeners, p.el('btn-calc').listeners], [{}, {}]);
@@ -420,7 +435,7 @@ test('HTML: baseline-ui の書式（見出しは balance・本文は pretty・�
   assert.equal(HTML.includes('h1, .group-title { text-wrap: balance; }'), true);
   assert.equal(HTML.includes('.spec-body li, .placeholder, .field-error, .field-hint { text-wrap: pretty; }'), true);
   const rule = sel => (HTML.match(new RegExp(`\\n${sel.replace(/[.[\]=]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1] || '';
-  for (const sel of ['.field input[type=number]', '.field textarea', '.sval', '.num'])
+  for (const sel of ['.field input', '.field textarea', '.sval', '.num'])
     assert.equal(rule(sel).includes('font-variant-numeric: tabular-nums;'), true, sel);
   assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #6b6b6b; font-variant-numeric: tabular-nums; }'), true);
 });
@@ -455,7 +470,7 @@ test('HTML: 補助テキスト（初期案内・件数・該当なし）の文�
 });
 
 test('HTML: 入力欄の枠線は白背景に対し 3:1 以上（入力範囲を示すのは枠線だけ）', () => {
-  for (const sel of ['.field input[type=number]', '.field textarea']) {
+  for (const sel of ['.field input', '.field textarea']) {
     const c = cssColor(sel, 'border');
     assert.equal(typeof c, 'string', sel);
     assert.equal(contrast(c, '#ffffff') >= 3, true, `${sel} ${c} ${contrast(c, '#ffffff').toFixed(2)}`);

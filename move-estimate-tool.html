@@ -46,7 +46,7 @@ h1, .group-title { text-wrap: balance; }
   color: #4D4D4D;
   margin-bottom: 5px;
 }
-.field input[type=number] {
+.field input {
   width: 100%;
   border: 1px solid #8a8a8a;
   border-radius: 4px;
@@ -54,12 +54,9 @@ h1, .group-title { text-wrap: balance; }
   font-size: 14px;
   color: #1a1a1a;
   font-variant-numeric: tabular-nums;
-  -moz-appearance: textfield;
 }
-.field input[type=number]::-webkit-inner-spin-button,
-.field input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
-.field input[type=number]:focus { border-color: #3460FB; }
-.field input[type=number][aria-invalid="true"] { border-color: #D42020; }
+.field input:focus { border-color: #3460FB; }
+.field input[aria-invalid="true"] { border-color: #D42020; }
 .field-error { margin-top: 5px; font-size: 12px; font-weight: 600; color: #D42020; }
 .field-error:empty { display: none; }
 /* CSV一括の入力欄。読めなかった行は1行ずつ改行して並べる */
@@ -247,7 +244,7 @@ h1, .group-title { text-wrap: balance; }
     <form class="input-card" id="calc-form" novalidate>
       <div class="field">
         <label for="inp-pt">指定のポイント</label>
-        <input type="number" id="inp-pt" value="0" min="0" inputmode="numeric" aria-describedby="inp-pt-error">
+        <input type="text" id="inp-pt" value="0" inputmode="numeric" autocomplete="off" aria-describedby="inp-pt-error">
         <p class="field-error" id="inp-pt-error" aria-live="polite"></p>
       </div>
       <button type="submit" class="btn-calc" id="btn-calc">計算する</button>
@@ -502,16 +499,17 @@ function renderAll() {
   return vm;
 }
 
+// 指定のポイントは CSV の pt 欄と同じ書式で読む（parsePt）。読めない値はエラーを出して計算しない
 function doCalc() {
-  // parseInt は "1e3" を 1 と読むため Number で読む。非有限（Infinity・非数）は0
-  const toInt = v => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; };
+  const value = document.getElementById('inp-pt').value;
+  const r = value.trim() ? parsePt(value) : { reason: 'ポイントを入力してください' };
   appState.mode     = 'single';
-  appState.pt       = toInt(document.getElementById('inp-pt').value);
-  if (appState.pt > MAX_PT) {
+  if (r.reason) {
     appState.list  = null;
-    appState.error = `ポイントは${MAX_PT.toLocaleString()}以下にしてください`;
+    appState.error = r.reason;
     return renderAll();
   }
+  appState.pt       = r.pt;
   appState.error    = '';
   appState.list     = solve(appState.pt);
   // 主な候補が無いときだけ、別枠の候補を最初から開く
