@@ -78,11 +78,11 @@ test('parseCsv: 区切りはカンマ・タブ・全角カンマ。ptの桁区�
 });
 
 test('parseCsv: 行番号は空行を含めた物理行で数える（CRLF・CR・LF の混在、BOM、前後の空白、空白だけの行）', () => {
-  const text = '﻿  a,1190  \r\n\r\n \t \rb,595\n\nc,634\r\n';
+  const text = '\uFEFF  a,1190  \r\n\r\n \t \rb,595\n\nc,634\r\n';
   // 1: a / 2: 空 / 3: 空白だけ / 4: b（CR 区切り）/ 5: 空 / 6: c / 7: 末尾の CRLF の後の空行
   assert.deepEqual(parseCsv(text), { people: people([1, 'a', 1190], [4, 'b', 595], [6, 'c', 634]), errors: [] });
   // BOM は行の trim で除かれる（U+FEFF は JS の空白に含まれる）。名前の直前・pt の直後に付いても残らない
-  assert.deepEqual(parseCsv('﻿a,1﻿').people, people([1, 'a', 1]));
+  assert.deepEqual(parseCsv('\uFEFFa,1\uFEFF').people, people([1, 'a', 1]));
 });
 
 test('parseCsv: 最初の行が数字の無い見出しなら読み飛ばす（空行の後でも最初の行）。2行目以降の同じ形はエラー', () => {
@@ -169,7 +169,7 @@ test('parseCsv: カンマ区切りで名前が数字で終わり pt が3桁区�
 });
 
 test('parseCsv: 空・空行だけは0件。同じ名前は別の人として両方読む', () => {
-  for (const text of ['', '\n\r\n  \n', '﻿']) assert.deepEqual(parseCsv(text), { people: [], errors: [] }, JSON.stringify(text));
+  for (const text of ['', '\n\r\n  \n', '\uFEFF']) assert.deepEqual(parseCsv(text), { people: [], errors: [] }, JSON.stringify(text));
   assert.deepEqual(parseCsv('a,595\na,634').people, people([1, 'a', 595], [2, 'a', 634]));
 });
 
