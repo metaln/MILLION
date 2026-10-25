@@ -627,6 +627,19 @@ test('HTML: 入力欄の枠線は白背景に対し 3:1 以上（入力範囲を
   assert.equal(contrast('#cccccc', '#ffffff') < 3, true);
 });
 
+test('HTML: 警告（.warn）は同じ要素の .placeholder・.group-empty より後に書き、赤で表示される', () => {
+  // 1クラスの規則どうしは詳細度が同じため、後に書いた方の color が効く。classes の各クラスの規則のうち
+  // color を持つ最後のものを返す（複合セレクタは置いていない前提: 下で確かめる）
+  const winner = classes => classes
+    .map(c => ({ c, at: HTML.search(new RegExp(`\\n\\.${c} \\{[^}]*\\bcolor: #`)) }))
+    .filter(x => x.at >= 0).sort((x, y) => y.at - x.at)[0].c;
+  const shown = classes => cssColor(`.${winner(classes)}`, 'color');
+  assert.equal(/\.(placeholder|group-empty)\.warn|\.warn\.(placeholder|group-empty)/.test(HTML.slice(0, HTML.indexOf('</style>'))), false);
+  assert.deepEqual([shown(['group-empty', 'warn']), shown(['placeholder', 'warn'])], ['#D42020', '#D42020']);
+  // 対照: 警告でない補助テキストは灰色のまま
+  assert.deepEqual([shown(['group-empty']), shown(['placeholder'])], ['#6b6b6b', '#6b6b6b']);
+});
+
 test('HTML: 入力欄のフォーカスは枠線の色でなくアウトラインで示す（エラーの赤枠中も見える）', () => {
   const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
   assert.equal(css.startsWith('<style>') && css.includes('.field textarea {'), true);

@@ -127,7 +127,6 @@ h1, .group-title { text-wrap: balance; }
   padding: 32px 0;
   text-align: center;
 }
-.warn { color: #D42020; font-weight: 600; }
 /* 画面には出さず読み上げだけに渡す（計算結果の短い要約）*/
 .visually-hidden {
   position: absolute;
@@ -190,6 +189,8 @@ h1, .group-title { text-wrap: balance; }
 }
 .group-count { font-size: 12px; font-weight: 400; color: #6b6b6b; font-variant-numeric: tabular-nums; }
 .group-empty { font-size: 13px; color: #6b6b6b; padding: 2px 0; }
+/* 警告。.placeholder・.group-empty と同じ要素に付けるため、詳細度が同じそれらより後に書く */
+.warn { color: #D42020; font-weight: 600; }
 .result-row {
   display: flex;
   align-items: center;
