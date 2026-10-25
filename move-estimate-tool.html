@@ -312,6 +312,7 @@ const FORMAT_SPECS = {
     release:  { point: 637, trigger: -140 },
     bonus:    { point: 3000, counts: [0, 5] },           // チューンのボーナスは0回か5回のどちらかとして計算する
     unlikely: { release: 1000, trigger: 500000 },       // 仮にシアターと同じ値。使いながら調整する
+    zeroRelease: [0],   // 吐き0回がほとんどのボーナス回数。それ以外の回数では吐き1回以上がほとんど（システム上の特徴）
   },
 };
 const TRIGGER_MIN  = -10000;                 // トリガー数はこれを下回らない
@@ -343,19 +344,24 @@ const bonusLabel = cs => cs.length > 1 && cs.at(-1) - cs[0] === cs.length - 1
   : cs.map(c => `${c}回`).join('・');
 
 // 仕様の文言。ボーナス回数が0回から続く形式は最大の回数を、飛びがある形式は計算する回数を書く。
-// 「その他の候補」に分けるボーナス回数が無い形式では、その項目を出さない
+// 「その他の候補」に分けるボーナス回数が無い形式・吐き0回の特徴（zeroRelease）が無い形式では、その項目を出さない
 function specItems(f) {
   const { charge: C, release: R, bonus: B } = f;
   const bonusRule = B.counts.every((c, i) => c === i)
     ? `使えるのは最大${B.counts.at(-1)}回です。`
     : `回数は${B.counts.map(c => `${c}回`).join('か')}として計算します。`;
+  const zero = f.zeroRelease;
+  const zeroRule = zero
+    ? `${MOVE_NAME.bonus}が${bonusLabel(zero)}なら${MOVE_NAME.release}は0回、${bonusLabel(B.counts.filter(c => !zero.includes(c)))}なら${MOVE_NAME.release}は1回以上のことがほとんどのため、そうでない組み合わせは「その他の候補」に分けます。`
+    : '';
   return [
     `${MOVE_NAME.charge}: ${fmt(C.point)}ptとトリガー${fmt(C.trigger)}個を得ます。`,
     `${MOVE_NAME.release}: トリガー${fmt(-R.trigger)}個を使い、${fmt(R.point)}ptを得ます。`,
     `${MOVE_NAME.bonus}: ${fmt(B.point)}ptを得ます。${bonusRule}`,
     `開始時のトリガー数は0個とします。最終トリガー数が${fmt(TRIGGER_MIN)}〜${fmt(TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
     ...(f.rare.length ? [`${MOVE_NAME.bonus}は${bonusLabel(f.likely)}のことがほとんどのため、${bonusLabel(f.rare)}の候補は「その他の候補」に分けます。`] : []),
-    `${MOVE_NAME.release}が${fmt(f.unlikely.release)}回以上で、最終トリガー数が${fmt(f.unlikely.trigger)}個以上の組み合わせ${f.rare.length ? 'も' : 'は'}、ほとんど起きないため「その他の候補」に分けます。`,
+    ...(zeroRule ? [zeroRule] : []),
+    `${MOVE_NAME.release}が${fmt(f.unlikely.release)}回以上で、最終トリガー数が${fmt(f.unlikely.trigger)}個以上の組み合わせ${f.rare.length || zeroRule ? 'も' : 'は'}、ほとんど起きないため「その他の候補」に分けます。`,
     `同じ${MOVE_NAME.bonus}回数の候補は、最終トリガー数が0に近い順に並べます。`,
   ];
 }
@@ -404,9 +410,11 @@ function solve(pt, f) {
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
 // 形式 f で主な候補か（ボーナスが0回・5回で、吐きが f.unlikely.release 回以上かつ
-// トリガー数が f.unlikely.trigger 以上の組でない）。それ以外は「その他の候補」
+// トリガー数が f.unlikely.trigger 以上の組でない。f.zeroRelease がある形式では、ボーナスがその回数なら吐き0回、
+// それ以外の回数なら吐き1回以上の組に限る）。それ以外は「その他の候補」
 const isLikely = (x, f) => f.likely.includes(x.bonus)
-  && !(x.release >= f.unlikely.release && x.trigger >= f.unlikely.trigger);
+  && !(x.release >= f.unlikely.release && x.trigger >= f.unlikely.trigger)
+  && (!f.zeroRelease || f.zeroRelease.includes(x.bonus) === (x.release === 0));
 
 // 表示するボーナス回数の切り替え。'all' は0回・5回の両方。1〜4回は切り替えによらず表示する
 const viewLabel = v => (v === 'all' ? '両方' : `${v}回`);

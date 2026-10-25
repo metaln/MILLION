@@ -43,7 +43,11 @@ test('定数: チューン形式の動きのポイント・トリガー数は依
     bonus: { point: 3000, counts: [0, 5] },
     // 「その他の候補」の基準は仮にシアターと同じ値（使いながら調整する）
     unlikely: { release: 1000, trigger: 500000 },
+    // ボーナス0回なら吐き0回、5回なら吐き1回以上がほとんど（システム上の特徴）
+    zeroRelease: [0],
   });
+  // 対照: シアターにはこの特徴が無い
+  assert.equal('zeroRelease' in mv.FORMAT_SPECS.theater, false);
   // 定義から決まる値: 吐きの刻みは 525 / gcd(637, 525) = 525 / 7 = 75。1〜4回を計算しないため rare は空
   assert.deepEqual([U.key, U.releaseStep, U.likely, U.rare, U.order, U.views], ['tune', 75, [0, 5], [], [0, 5], []]);
 });
@@ -117,14 +121,57 @@ test('solve: チューンのトリガー数の上限（999,985 は候補に入�
 
 test('isLikely: チューンも吐き1,000回以上かつトリガー数500,000以上の組を外す。基準は形式の unlikely・likely から読む', () => {
   const x = (bonus, release, trigger, f = U) => mv.isLikely({ charge: 0, release, bonus, trigger }, f);
-  assert.deepEqual([x(0, 1000, 500000), x(5, 1000, 500000), x(0, 999, 500000), x(0, 1000, 499985), x(5, 0, -9975)],
-    [false, false, true, true, true]);
+  // 吐きの回数で外れないよう、ボーナス5回（吐き1回以上が主な候補）で確かめる
+  assert.deepEqual([x(5, 1000, 500000), x(5, 999, 500000), x(5, 1000, 499985), x(5, 1, -9975)],
+    [false, true, true, true]);
   // 基準の値を変えた形式では、その値で分ける（シアターの値の直書きでない）
   const adjusted = { ...U, unlikely: { release: 10, trigger: 100 } };
-  assert.deepEqual([x(0, 10, 100, adjusted), x(0, 9, 100, adjusted), x(0, 10, 99, adjusted), x(0, 1000, 499985, adjusted)],
+  assert.deepEqual([x(5, 10, 100, adjusted), x(5, 9, 100, adjusted), x(5, 10, 99, adjusted), x(5, 1000, 499985, adjusted)],
     [false, true, true, false]);
   // ボーナス回数が形式の likely に無ければ主な候補にしない（対照: likely にある回数は残す）
-  assert.deepEqual([x(0, 0, 0, { ...U, likely: [5] }), x(5, 0, 0, { ...U, likely: [5] })], [false, true]);
+  assert.deepEqual([x(0, 0, 0, { ...U, likely: [5] }), x(5, 1, 0, { ...U, likely: [5] })], [false, true]);
+});
+
+test('isLikely: チューンはボーナス0回で吐き1回以上の組と、5回で吐き0回の組を外す。回数は形式の zeroRelease から読む', () => {
+  const x = (bonus, release, trigger, f = U) => mv.isLikely({ charge: 0, release, bonus, trigger }, f);
+  // 吐き0回と1回の境目を、ボーナス0回・5回の両方で見る
+  assert.deepEqual([x(0, 0, 595), x(0, 1, 455), x(0, 999, 0), x(5, 0, 0), x(5, 1, -140), x(5, 999, 0)],
+    [true, false, false, false, true, true]);
+  // zeroRelease の回数を変えた形式では、その回数で分ける（0回の直書きでない）
+  const flipped = { ...U, zeroRelease: [5] };
+  assert.deepEqual([x(0, 0, 0, flipped), x(0, 1, 0, flipped), x(5, 0, 0, flipped), x(5, 1, 0, flipped)],
+    [false, true, true, false]);
+  // 吐き1回以上でも、吐き1,000回以上かつトリガー数50万以上の基準では外す（両方の基準を重ねる）
+  assert.deepEqual(x(5, 1000, 500000), false);
+  // 対照: zeroRelease の無いシアターでは、吐きの回数だけでは外さない
+  assert.deepEqual([x(0, 1, 455, T), x(5, 0, 0, T)], [true, true]);
+});
+
+test('表示: チューンのボーナス0回で吐き1回以上だけの pt は、主な候補0件で「その他の候補」を最初から開く（1,162）', () => {
+  const p = loadMove();
+  p.clickFormat('tune');
+  p.calc(1162);
+  const r = result(p);
+  assert.deepEqual([r.summary, r.toggle], [SUMMARY(1162, 'チューン', 0, 1), { expanded: 'true', label: 'その他の候補を隠す' }]);
+  assert.deepEqual(outline(p), [['ボーナス 0回', 0, 0], ['ボーナス 5回', 0, 0], ['ボーナス 0回', 1, 1]]);
+  assert.deepEqual(r.groups[2].rows, [['1', '1', '+455']]);
+  assert.equal(status(p), 'チューン形式で計算しました。主な候補は0件、その他の候補は1件です');
+  // 対照: 吐き0回で作れる 525 はボーナス0回の主な候補に残り、別枠は閉じたまま
+  p.calc(525);
+  assert.deepEqual([result(p).summary, result(p).toggle], [SUMMARY(525, 'チューン', 1, 0), null]);
+});
+
+test('表示: チューンのボーナス5回で吐き0回の組は「その他の候補」へ移し、吐き1回以上の組は主な候補に残す（15,637）', () => {
+  const p = loadMove();
+  p.clickFormat('tune');
+  // 前提: 15,637 = 3,000×5 + 637 は吐き1回の組だけ、15,525 = 3,000×5 + 525 は吐き0回の組だけ
+  assert.deepEqual(solveTune(15637), [{ charge: 0, release: 1, bonus: 5, trigger: -140 }]);
+  assert.deepEqual(solveTune(15525), [{ charge: 1, release: 0, bonus: 5, trigger: 595 }]);
+  p.calc(15637);
+  assert.deepEqual([result(p).summary, result(p).toggle], [SUMMARY(15637, 'チューン', 1, 0), null]);
+  p.calc(15525);
+  assert.deepEqual([result(p).summary, outline(p)],
+    [SUMMARY(15525, 'チューン', 0, 1), [['ボーナス 0回', 0, 0], ['ボーナス 5回', 0, 0], ['ボーナス 5回', 1, 1]]]);
 });
 
 test('表示: チューンはボーナス0回・5回のグループだけを出し、1〜4回のグループと表示する回数の切り替えは出さない（3,000,003）', () => {
@@ -176,16 +223,16 @@ test('切り替え: 選択中の形式・決まった値以外（大文字違い
     ['tune', true, PRESSED('tune'), 1]);
 });
 
-test('切り替え: 1人用の結果を計算した pt のままその形式で計算し直し、要約を読み上げる（1,162 はシアターで候補なし・チューンで1件）', () => {
+test('切り替え: 1人用の結果を計算した pt のままその形式で計算し直し、要約を読み上げる（525 はシアターで候補なし・チューンで1件）', () => {
   const p = loadMove();
-  p.calc(1162);
+  p.calc(525);
   assert.deepEqual([html(p), status(p)], [MSG_NONE('シアター'), 'シアター形式では、指定のポイントに合う組み合わせがありません']);
   // 入力欄の値は読み直さない
   p.el('inp-pt').value = '595';
   p.clickFormat('tune');
   assert.deepEqual(result(p), {
-    summary: SUMMARY(1162, 'チューン', 1, 0),
-    groups: [{ title: 'ボーナス 0回', total: 1, rows: [['1', '1', '+455']], empty: false }, EMPTY(5)],
+    summary: SUMMARY(525, 'チューン', 1, 0),
+    groups: [{ title: 'ボーナス 0回', total: 1, rows: [['1', '0', '+595']], empty: false }, EMPTY(5)],
     toggle: null,
   });
   assert.equal(status(p), 'チューン形式で計算しました。主な候補は1件、その他の候補は0件です');
@@ -268,8 +315,8 @@ test('切り替え: 未計算・入力のエラーの状態は描き直さず、
   assert.deepEqual([html(p), p.appState.batch, fieldError(p, 'inp-csv'), p.raf.requested],
     ['', null, ['名前と現在ptを1行以上入力してください', 'true'], 0]);
   // 切り替えた形式は次の計算に使う
-  p.calc(1162);
-  assert.deepEqual(result(p).summary, SUMMARY(1162, 'チューン', 1, 0));
+  p.calc(525);
+  assert.deepEqual(result(p).summary, SUMMARY(525, 'チューン', 1, 0));
 });
 
 test('切り替え: チューンでは表示する回数の選択によらず両方を表示する。選んであった回数はシアターへ戻すと元に戻る', () => {
@@ -288,7 +335,7 @@ test('切り替え: チューンでは表示する回数の選択によらず両
   assert.deepEqual(viewButtons(html(p)).map(b => b[1]), ['false', 'false', 'true']);
 });
 
-test('仕様: チューンへ切り替えると、チューンの定数から組んだ6項目に替わる（1〜4回の項目は無く、次の項目は「は」でつなぐ）', () => {
+test('仕様: チューンへ切り替えると、チューンの定数から組んだ7項目に替わる（1〜4回の項目の代わりに吐き0回の項目を置き、次の項目は「も」でつなぐ）', () => {
   const p = loadMove();
   const theater = p.el('spec-body').innerHTML;
   p.fire('spec-toggle', 'click');
@@ -300,7 +347,8 @@ test('仕様: チューンへ切り替えると、チューンの定数から組
     `吐き: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
     `ボーナス: ${n(B.point)}ptを得ます。回数は0回か5回として計算します。`,
     `開始時のトリガー数は0個とします。最終トリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
-    `吐きが${n(X.release)}回以上で、最終トリガー数が${n(X.trigger)}個以上の組み合わせは、ほとんど起きないため「その他の候補」に分けます。`,
+    'ボーナスが0回なら吐きは0回、5回なら吐きは1回以上のことがほとんどのため、そうでない組み合わせは「その他の候補」に分けます。',
+    `吐きが${n(X.release)}回以上で、最終トリガー数が${n(X.trigger)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
     '同じボーナス回数の候補は、最終トリガー数が0に近い順に並べます。',
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));
