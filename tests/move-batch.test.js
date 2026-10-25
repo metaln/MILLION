@@ -345,6 +345,15 @@ test('一括: 人数は上限50人まで。51人は誰も計算しない。読�
   p.batch(lines(51).join('\n'));
   assert.deepEqual([p.el('result').innerHTML, csvError(p), p.appState.batch],
     ['', ['一度に計算できるのは50人までです（51人分あります）', 'true'], null]);
+  // 上限を超えたら読めなかった行は捨て、エラー欄は上限の文言1件だけにする（人数は読めた行だけで数える）
+  p.batch([...lines(51), 'bad', 'c,abc'].join('\n'));
+  // 直前と同じ文言は読み上げのため次のフレームで入れ直す（#20）。入れ直した後の表示を見る
+  p.flushRaf();
+  assert.deepEqual([p.el('result').innerHTML, csvError(p), p.appState.batch, p.appState.batchRowErrors],
+    ['', ['一度に計算できるのは50人までです（51人分あります）', 'true'], null, []]);
+  // 対照: 50人なら同じ読めない行が行エラーとして残る
+  p.batch([...lines(50), 'bad', 'c,abc'].join('\n'));
+  assert.deepEqual(p.appState.batchRowErrors.map(e => e.line), [51, 52]);
 });
 
 test('一括: 行エラーと入力全体のエラーは状態を分ける。読めなかった行は行エラーだけを数え、エラー欄は全体→行の順に並べる', () => {
