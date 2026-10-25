@@ -3,10 +3,10 @@
 // シアター形式の計算・表示は tests/move.test.js、CSV一括の読み方は tests/move-batch.test.js
 //
 // 観点表で外したもの（理由）:
-// - トリガー数 −10,000〜−9,976・999,986〜999,999: 595×貯め − 140×吐き は常に35の倍数で、これらの値は作れない。
-//   範囲の外側は −10,010 と 1,000,020、内側は −9,975 と 999,985 で確かめる（貯め・吐き0〜299回の全組で35の倍数を実測。2026-10-25）
-// - 同じボーナス回数でトリガー数の絶対値が等しい2件（並び順の同点）: 候補どうしの差 64,645 が奇数のため、
-//   負の側が −64,645 以下になり下限で除外される
+// - トリガー数 −10,000〜−9,976・999,986〜999,999: 525×貯め − 140×吐き は常に35の倍数で、これらの値は作れない。
+//   範囲の外側は −10,010 と 1,000,020、内側は −9,975 と 999,985 で確かめる（525・140 がどちらも35の倍数のため）
+// - 同じボーナス回数でトリガー数の絶対値が等しい2件（並び順の同点）: 候補どうしの差 58,275 が奇数のため、
+//   負の側が −58,275 以下になり下限で除外される
 // - 入力上限 99,999,999 ちょうど: 7で割って1余り、チューンでは候補が無い。上限の近くは前向き列挙の範囲で確かめる
 // - 形式の選択の保存（開き直したときの復元）: 作っていない。開くたびにシアターから始まる
 // - 切り替えボタンの見た目・押しやすさ: 目視確認の範囲（CSS の宣言の有無だけ見る）
@@ -20,7 +20,7 @@ const mv = loadMove();
 const T = mv.FORMATS.theater, U = mv.FORMATS.tune;
 const solveTune = pt => mv.solve(pt, U);
 // 前向き列挙に渡すチューン形式の値（HTML の定数を読まずに書き写す）
-const TUNE = { charge: [525, 595], release: [637, -140], bonus: 3000, counts: [0, 5] };
+const TUNE = { charge: [525, 525], release: [637, -140], bonus: 3000, counts: [0, 5] };
 
 const html = p => p.el('result').innerHTML;
 const result = p => parseResult(html(p));
@@ -39,7 +39,7 @@ const PRESSED = key => [['theater', String(key === 'theater'), 'シアター'], 
 
 test('定数: チューン形式の動きのポイント・トリガー数は依頼仕様の値。ボーナスは0回か5回だけを計算する', () => {
   assert.deepEqual(mv.FORMAT_SPECS.tune, {
-    name: 'チューン', charge: { point: 525, trigger: 595 }, release: { point: 637, trigger: -140 },
+    name: 'チューン', charge: { point: 525, trigger: 525 }, release: { point: 637, trigger: -140 },
     bonus: { point: 3000, counts: [0, 5] },
     // 「その他の候補」の基準は仮にシアターと同じ値（使いながら調整する）
     unlikely: { release: 1000, trigger: 500000 },
@@ -65,15 +65,15 @@ test('views: チューンはどのptでも0回・5回の片方にしか候補が
 });
 
 test('solve: チューンで 0〜100,000 の全ポイントが前向き列挙と一致する（トリガー下限で外れる組を含む範囲）', () => {
-  assert.deepEqual(compareRange(solveTune, 0, 100000, TUNE), { compared: 24898, low: 1176, high: 0 });
+  assert.deepEqual(compareRange(solveTune, 0, 100000, TUNE), { compared: 24778, low: 1296, high: 0 });
 });
 
 test('solve: チューンで 1,000,000〜1,010,000 の全ポイントが前向き列挙と一致する（トリガー上限で外れる組を含む範囲）', () => {
-  assert.deepEqual(compareRange(solveTune, 1000000, 1010000, TUNE), { compared: 44622, low: 9259, high: 5784 });
+  assert.deepEqual(compareRange(solveTune, 1000000, 1010000, TUNE), { compared: 49265, low: 10268, high: 132 });
 });
 
 test('solve: チューンで入力上限の直前 99,999,000〜99,999,999 の全ポイントが前向き列挙と一致する（吐きの75回刻みを上限まで検算）', () => {
-  assert.deepEqual(compareRange(solveTune, mv.MAX_PT - 999, mv.MAX_PT, TUNE), { compared: 4468, low: 97185, high: 496941 });
+  assert.deepEqual(compareRange(solveTune, mv.MAX_PT - 999, mv.MAX_PT, TUNE), { compared: 4957, low: 107808, high: 485829 });
 });
 
 test('solve: チューンの最小の動きの前後（負・0・1・524・525・526・636・637・638・1,162）', () => {
@@ -81,11 +81,11 @@ test('solve: チューンの最小の動きの前後（負・0・1・524・525�
     [-1, []],
     [0, [{ charge: 0, release: 0, bonus: 0, trigger: 0 }]],
     [1, []], [524, []],
-    [525, [{ charge: 1, release: 0, bonus: 0, trigger: 595 }]],
+    [525, [{ charge: 1, release: 0, bonus: 0, trigger: 525 }]],
     [526, []], [636, []],
     [637, [{ charge: 0, release: 1, bonus: 0, trigger: -140 }]],
     [638, []],
-    [1162, [{ charge: 1, release: 1, bonus: 0, trigger: 455 }]],
+    [1162, [{ charge: 1, release: 1, bonus: 0, trigger: 385 }]],
   ];
   for (const [pt, want] of cases) assert.deepEqual(solveTune(pt), want, `pt=${pt}`);
 });
@@ -94,29 +94,29 @@ test('solve: チューンのボーナスは0回か5回だけ（3,000〜12,000 �
   // 1〜4回を計算すれば、どれも貯め・吐き0回の組（トリガー数0）が候補になる値
   for (const pt of [3000, 6000, 9000, 12000]) assert.deepEqual(solveTune(pt), [], `pt=${pt}`);
   assert.deepEqual(solveTune(15000), [{ charge: 0, release: 0, bonus: 5, trigger: 0 }]);
-  assert.deepEqual(solveTune(15525), [{ charge: 1, release: 0, bonus: 5, trigger: 595 }]);
+  assert.deepEqual(solveTune(15525), [{ charge: 1, release: 0, bonus: 5, trigger: 525 }]);
   // 対照: シアターでは 3,000 はボーナス1回で作れる
   assert.deepEqual(mv.solve(3000, T), [{ charge: 0, release: 0, bonus: 1, trigger: 0 }]);
 });
 
 test('solve: チューンのトリガー数の下限（−9,975 は候補に入り、−10,010 は外す）', () => {
-  assert.deepEqual(solveTune(55083), [
-    { charge: 94, release: 9, bonus: 0, trigger: 54670 },
-    { charge: 3, release: 84, bonus: 0, trigger: -9975 },
+  assert.deepEqual(solveTune(48300), [
+    { charge: 92, release: 0, bonus: 0, trigger: 48300 },
+    { charge: 1, release: 75, bonus: 0, trigger: -9975 },
   ]);
-  // 前提: 52,010 = 525×2 + 637×80 で、この組のトリガー数は −10,010
-  assert.deepEqual([525 * 2 + 637 * 80, 595 * 2 - 140 * 80], [52010, -10010]);
-  assert.deepEqual(solveTune(52010), [{ charge: 93, release: 5, bonus: 0, trigger: 54635 }]);
+  // 前提: 51,373 = 525×2 + 637×79 で、この組のトリガー数は −10,010
+  assert.deepEqual([525 * 2 + 637 * 79, 525 * 2 - 140 * 79], [51373, -10010]);
+  assert.deepEqual(solveTune(51373), [{ charge: 93, release: 4, bonus: 0, trigger: 48265 }]);
 });
 
-test('solve: チューンのトリガー数の上限（999,985 は候補に入り、7桁の 1,000,020 は外す）。1グループは最大16件', () => {
+test('solve: チューンのトリガー数の上限（999,985 は候補に入り、7桁の 1,000,020 は外す）。1グループは最大18件', () => {
   const triggers = pt => solveTune(pt).map(x => x.trigger);
-  // solve は吐き回数の昇順（トリガー数の降順）に返す。候補どうしの差は 64,645
-  assert.deepEqual(triggers(889945), Array.from({ length: 16 }, (_, k) => 999985 - 64645 * k));
-  assert.deepEqual(solveTune(889945)[0], { charge: 1683, release: 10, bonus: 0, trigger: 999985 });
-  // 前提: 893,018 = 525×1,684 + 637×14 で、この組のトリガー数は 1,000,020
-  assert.deepEqual([525 * 1684 + 637 * 14, 595 * 1684 - 140 * 14], [893018, 1000020]);
-  assert.deepEqual(triggers(893018), Array.from({ length: 15 }, (_, k) => 935375 - 64645 * k));
+  // solve は吐き回数の昇順（トリガー数の降順）に返す。候補どうしの差は 58,275
+  assert.deepEqual(triggers(1000762), Array.from({ length: 18 }, (_, k) => 999985 - 58275 * k));
+  assert.deepEqual(solveTune(1000762)[0], { charge: 1905, release: 1, bonus: 0, trigger: 999985 });
+  // 前提: 1,009,344 = 525×1,908 + 637×12 で、この組のトリガー数は 1,000,020
+  assert.deepEqual([525 * 1908 + 637 * 12, 525 * 1908 - 140 * 12], [1009344, 1000020]);
+  assert.deepEqual(triggers(1009344), Array.from({ length: 17 }, (_, k) => 941745 - 58275 * k));
 });
 
 test('isLikely: チューンも吐き1,000回以上かつトリガー数500,000以上の組を外す。基準は形式の unlikely・likely から読む', () => {
@@ -135,7 +135,7 @@ test('isLikely: チューンも吐き1,000回以上かつトリガー数500,000�
 test('isLikely: チューンはボーナス0回で吐き1回以上の組と、5回で吐き0回の組を外す。回数は形式の zeroRelease から読む', () => {
   const x = (bonus, release, trigger, f = U) => mv.isLikely({ charge: 0, release, bonus, trigger }, f);
   // 吐き0回と1回の境目を、ボーナス0回・5回の両方で見る
-  assert.deepEqual([x(0, 0, 595), x(0, 1, 455), x(0, 999, 0), x(5, 0, 0), x(5, 1, -140), x(5, 999, 0)],
+  assert.deepEqual([x(0, 0, 525), x(0, 1, 385), x(0, 999, 0), x(5, 0, 0), x(5, 1, -140), x(5, 999, 0)],
     [true, false, false, false, true, true]);
   // zeroRelease の回数を変えた形式では、その回数で分ける（0回の直書きでない）
   const flipped = { ...U, zeroRelease: [5] };
@@ -144,7 +144,7 @@ test('isLikely: チューンはボーナス0回で吐き1回以上の組と、5�
   // 吐き1回以上でも、吐き1,000回以上かつトリガー数50万以上の基準では外す（両方の基準を重ねる）
   assert.deepEqual(x(5, 1000, 500000), false);
   // 対照: zeroRelease の無いシアターでは、吐きの回数だけでは外さない
-  assert.deepEqual([x(0, 1, 455, T), x(5, 0, 0, T)], [true, true]);
+  assert.deepEqual([x(0, 1, 385, T), x(5, 0, 0, T)], [true, true]);
 });
 
 test('表示: チューンのボーナス0回で吐き1回以上だけの pt は、主な候補0件で「その他の候補」を最初から開く（1,162）', () => {
@@ -154,7 +154,7 @@ test('表示: チューンのボーナス0回で吐き1回以上だけの pt は
   const r = result(p);
   assert.deepEqual([r.summary, r.toggle], [SUMMARY(1162, 'チューン', 0, 1), { expanded: 'true', label: 'その他の候補を隠す' }]);
   assert.deepEqual(outline(p), [['ボーナス 0回', 0, 0], ['ボーナス 5回', 0, 0], ['ボーナス 0回', 1, 1]]);
-  assert.deepEqual(r.groups[2].rows, [['1', '1', '+455']]);
+  assert.deepEqual(r.groups[2].rows, [['1', '1', '+385']]);
   assert.equal(status(p), 'チューン形式で計算しました。主な候補は0件、その他の候補は1件です');
   // 対照: 吐き0回で作れる 525 はボーナス0回の主な候補に残り、別枠は閉じたまま
   p.calc(525);
@@ -166,7 +166,7 @@ test('表示: チューンのボーナス5回で吐き0回の組は「その他�
   p.clickFormat('tune');
   // 前提: 15,637 = 3,000×5 + 637 は吐き1回の組だけ、15,525 = 3,000×5 + 525 は吐き0回の組だけ
   assert.deepEqual(solveTune(15637), [{ charge: 0, release: 1, bonus: 5, trigger: -140 }]);
-  assert.deepEqual(solveTune(15525), [{ charge: 1, release: 0, bonus: 5, trigger: 595 }]);
+  assert.deepEqual(solveTune(15525), [{ charge: 1, release: 0, bonus: 5, trigger: 525 }]);
   p.calc(15637);
   assert.deepEqual([result(p).summary, result(p).toggle], [SUMMARY(15637, 'チューン', 1, 0), null]);
   p.calc(15525);
@@ -179,18 +179,19 @@ test('表示: チューンはボーナス0回・5回のグループだけを出�
   p.clickFormat('tune');
   p.calc(3000003);
   const r = result(p);
-  assert.deepEqual([r.summary, r.toggle], [SUMMARY(3000003, 'チューン', 8, 8), { expanded: 'false', label: 'その他の候補を表示' }]);
+  assert.deepEqual([r.summary, r.toggle], [SUMMARY(3000003, 'チューン', 9, 8), { expanded: 'false', label: 'その他の候補を表示' }]);
   // 3,000,003 は7で割って6余るため5回だけ。0回は「該当なし」
   assert.deepEqual(r.groups, [EMPTY(0), {
-    title: 'ボーナス 5回', total: 8, empty: false,
-    rows: [['961', '3,894', '+26,635'], ['1,052', '3,819', '+91,280'], ['1,143', '3,744', '+155,925'], ['1,234', '3,669', '+220,570'],
-      ['1,325', '3,594', '+285,215'], ['1,416', '3,519', '+349,860'], ['1,507', '3,444', '+414,505'], ['1,598', '3,369', '+479,150']],
+    title: 'ボーナス 5回', total: 9, empty: false,
+    rows: [['1,052', '3,819', '+17,640'], ['1,143', '3,744', '+75,915'], ['1,234', '3,669', '+134,190'], ['1,325', '3,594', '+192,465'],
+      ['1,416', '3,519', '+250,740'], ['1,507', '3,444', '+309,015'], ['1,598', '3,369', '+367,290'], ['1,689', '3,294', '+425,565'],
+      ['1,780', '3,219', '+483,840']],
   }]);
   p.clickResult('rare');
   // 吐き1,000回以上かつトリガー数50万以上の8件は、その他の候補の5回のグループへ移る
-  assert.deepEqual(outline(p), [['ボーナス 0回', 0, 0], ['ボーナス 5回', 8, 8], ['ボーナス 5回', 8, 8]]);
+  assert.deepEqual(outline(p), [['ボーナス 0回', 0, 0], ['ボーナス 5回', 9, 9], ['ボーナス 5回', 8, 8]]);
   assert.deepEqual(result(p).groups[2].rows.map(row => row[2]),
-    ['+543,795', '+608,440', '+673,085', '+737,730', '+802,375', '+867,020', '+931,665', '+996,310']);
+    ['+542,115', '+600,390', '+658,665', '+716,940', '+775,215', '+833,490', '+891,765', '+950,040']);
   assert.deepEqual(viewButtons(html(p)), []);
   // 対照: シアターで同じ pt を計算すると切り替えが出る
   p.clickFormat('theater');
@@ -232,7 +233,7 @@ test('切り替え: 1人用の結果を計算した pt のままその形式で�
   p.clickFormat('tune');
   assert.deepEqual(result(p), {
     summary: SUMMARY(525, 'チューン', 1, 0),
-    groups: [{ title: 'ボーナス 0回', total: 1, rows: [['1', '0', '+595']], empty: false }, EMPTY(5)],
+    groups: [{ title: 'ボーナス 0回', total: 1, rows: [['1', '0', '+525']], empty: false }, EMPTY(5)],
     toggle: null,
   });
   assert.equal(status(p), 'チューン形式で計算しました。主な候補は1件、その他の候補は0件です');
