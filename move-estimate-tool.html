@@ -586,10 +586,11 @@ document.getElementById('inp-csv-hint').textContent = CSV_HINT;
 document.getElementById('result').addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
-  if (btn.dataset.action === 'rare') appState.rareOpen = !appState.rareOpen;
+  // 開閉は表示中のモードのボタンだけが変える（別のモードの状態を残したまま描き直さない）
+  if (btn.dataset.action === 'rare' && appState.mode === 'single') appState.rareOpen = !appState.rareOpen;
   // 表示の切り替えは再計算しても保つ。決まった値以外は無視する
   if (btn.dataset.action === 'bonus-view' && BONUS_VIEWS.includes(btn.dataset.view)) appState.bonusView = btn.dataset.view;
-  if (btn.dataset.action === 'rare-person') {
+  if (btn.dataset.action === 'rare-person' && appState.mode === 'batch') {
     // Number('') は 0 になるため、数字だけの index に限る
     const p = /^\d+$/.test(btn.dataset.index || '') ? (appState.batch || [])[Number(btn.dataset.index)] : null;
     if (p) p.rareOpen = !p.rareOpen;

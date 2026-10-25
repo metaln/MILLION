@@ -300,6 +300,28 @@ test('一括: 読めない行は入力欄の直下に行番号つきで並べ、
   assert.deepEqual(batchResult(p).people.map(x => x.name), ['a']);
 });
 
+test('クリック: 開閉は表示中のモードのボタンだけが変える（一括中の rare・1人用中の rare-person は無視）', () => {
+  const p = loadMove();
+  p.calc(595);
+  const single = p.appState.rareOpen;
+  p.batch('a,595');
+  const person = p.appState.batch[0].rareOpen;
+  // 一括の表示中に1人用の開閉が届いても、1人用の状態は変えない
+  p.clickResult('rare');
+  assert.equal(p.appState.rareOpen, single);
+  // 対照: 一括の表示中は人ごとの開閉が変わる
+  p.clickResult('rare-person', 0);
+  assert.equal(p.appState.batch[0].rareOpen, !person);
+  // 1人用へ戻った後に人ごとの開閉が届いても、一括の状態は変えない。対照: 1人用の開閉は変わる
+  p.calc(595);
+  const kept = p.appState.batch[0].rareOpen;
+  p.clickResult('rare-person', 0);
+  assert.equal(p.appState.batch[0].rareOpen, kept);
+  const before = p.appState.rareOpen;
+  p.clickResult('rare');
+  assert.equal(p.appState.rareOpen, !before);
+});
+
 test('一括: 行を切る20文字はコードポイントで数える（絵文字のサロゲートペアを途中で切らない）', () => {
   const p = loadMove();
   const k19 = 'あ'.repeat(19);
