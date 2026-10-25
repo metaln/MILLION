@@ -159,7 +159,7 @@ h1, .group-title { text-wrap: balance; }
 .srow + .srow { border-top: 1px solid #d6e0fb; }
 .sval { color: #1a1a1a; font-variant-numeric: tabular-nums; }
 .srow:first-child .sval { font-size: 17px; font-weight: 600; }
-/* 表示するボーナス回数の切り替え（押されている側を塗る）*/
+/* 切り替えボタン（押されている側を塗る）。表示するボーナス回数と形式の切り替えで使う */
 .seg { display: inline-flex; }
 .seg-btn {
   min-width: 48px;
@@ -175,6 +175,16 @@ h1, .group-title { text-wrap: balance; }
 .seg-btn:last-child { border-radius: 0 4px 4px 0; }
 .seg-btn:hover { background: #e8eeff; }
 .seg-btn[aria-pressed="true"] { background: #3460FB; color: #fff; }
+/* 形式の切り替え（1人用・CSV一括の両方に効く）。計算の前に選ぶため、結果欄の切り替えより大きくする */
+.format-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #4D4D4D;
+}
+.format-row .seg-btn { min-width: 88px; padding: 6px 14px; font-size: 13px; }
 
 /* ─── Candidate groups ─── */
 .group { margin-bottom: 18px; }
@@ -249,6 +259,11 @@ h1, .group-title { text-wrap: balance; }
 
 <h1>ミリシタ 動き検討ツール</h1>
 
+<div class="format-row">
+  <span id="format-label">形式</span>
+  <div class="seg" id="format-switch" role="group" aria-labelledby="format-label"></div>
+</div>
+
 <div class="layout">
   <div class="left">
     <form class="input-card" id="calc-form" novalidate>
@@ -281,35 +296,69 @@ h1, .group-title { text-wrap: balance; }
 </div>
 
 <script>
-// ── 動きの定義（ポイント・トリガー数の正本。仕様の文言もここから組む）──
-const CHARGE  = { name: '貯め',     point: 595,  trigger: 595 };
-const RELEASE = { name: '吐き',     point: 634,  trigger: -180 };
-const BONUS   = { name: 'ボーナス', point: 3000, max: 5 };
+// ── 動きの定義（形式ごとのポイント・トリガー数の正本。仕様の文言もここから組む）──
+const MOVE_NAME = { charge: '貯め', release: '吐き', bonus: 'ボーナス' };
+const FORMAT_SPECS = {
+  theater: {
+    name: 'シアター',
+    charge:   { point: 595, trigger: 595 },
+    release:  { point: 634, trigger: -180 },
+    bonus:    { point: 3000, counts: [0, 1, 2, 3, 4, 5] },   // counts: 計算するボーナス回数
+    unlikely: { release: 1000, trigger: 500000 },   // 吐きがこの回数以上で、最後のトリガー数がこの数以上の組はほとんど起きない
+  },
+  tune: {
+    name: 'チューン',
+    charge:   { point: 525, trigger: 595 },
+    release:  { point: 637, trigger: -140 },
+    bonus:    { point: 3000, counts: [0, 5] },           // チューンのボーナスは0回か5回のどちらかとして計算する
+    unlikely: { release: 1000, trigger: 500000 },       // 仮にシアターと同じ値。使いながら調整する
+  },
+};
 const TRIGGER_MIN  = -10000;                 // トリガー数はこれを下回らない
 const TRIGGER_MAX  = 999999;                 // ゲーム内のトリガー数の上限（6桁）
-const LIKELY_BONUS = [0, BONUS.max];         // ボーナス回数はほとんどがこのどちらか
-const RARE_BONUS   = Array.from({ length: BONUS.max + 1 }, (_, c) => c).filter(c => !LIKELY_BONUS.includes(c));
-const UNLIKELY_RELEASE = 1000;               // 吐きが4桁（この回数以上）で
-const UNLIKELY_TRIGGER = 500000;             // 最後のトリガー数がこの数以上の組はほとんど起きない
-const BONUS_ORDER  = [...LIKELY_BONUS, ...RARE_BONUS];   // 候補を並べるボーナス回数の順
+const LIKELY_BONUS = [0, 5];                 // ボーナス回数はほとんどがこのどちらか
 const MAX_PT       = 99999999;               // 指定ポイントの入力上限（8桁）
 const BATCH_MAX    = 50;                     // CSVで一度に計算する人数の上限（運用は1時間帯あたり5〜15人）
+
+// 形式ごとに、定義から決まる値を足す。releaseStep: solve で吐き回数を進める刻み（solve の説明を参照）。
+// likely / rare: 主な候補にするボーナス回数と「その他の候補」に分ける回数。order: 候補を並べるボーナス回数の順。
+// views: 表示するボーナス回数の切り替え（'all' は両方）。同じptで0回と5回の両方に候補が出るには、
+// 差の分のボーナスpt（3,000×5）が gcd(貯めpt, 吐きpt) で割り切れる必要がある。割り切れない形式
+// （チューンは gcd 7）はどのptでも片方にしか候補が出ないため、切り替えを出さない
+const gcd = (x, y) => (y === 0 ? x : gcd(y, x % y));
+const FORMATS = Object.fromEntries(Object.entries(FORMAT_SPECS).map(([key, s]) => {
+  const g = gcd(s.release.point, s.charge.point);
+  const likely = LIKELY_BONUS.filter(c => s.bonus.counts.includes(c));
+  const rare = s.bonus.counts.filter(c => !LIKELY_BONUS.includes(c));
+  const both = likely.length > 1 && likely.every(c => (s.bonus.point * (c - likely[0])) % g === 0);
+  return [key, {
+    ...s, key, releaseStep: s.charge.point / g, likely, rare, order: [...likely, ...rare],
+    views: both ? ['all', ...likely.map(String)] : [],
+  }];
+}));
+const FORMAT_KEYS = Object.keys(FORMATS);    // 切り替えボタンの並び。先頭がページを開いたときの形式
 
 const bonusLabel = cs => cs.length > 1 && cs.at(-1) - cs[0] === cs.length - 1
   ? `${cs[0]}〜${cs.at(-1)}回`
   : cs.map(c => `${c}回`).join('・');
-const LIKELY_LABEL = bonusLabel(LIKELY_BONUS);   // 0回・5回
-const RARE_LABEL   = bonusLabel(RARE_BONUS);     // 1〜4回
 
-const SPEC_ITEMS = [
-  `${CHARGE.name}: ${CHARGE.point.toLocaleString()}ptとトリガー${CHARGE.trigger.toLocaleString()}個を得ます。`,
-  `${RELEASE.name}: トリガー${(-RELEASE.trigger).toLocaleString()}個を使い、${RELEASE.point.toLocaleString()}ptを得ます。`,
-  `${BONUS.name}: ${BONUS.point.toLocaleString()}ptを得ます。使えるのは最大${BONUS.max}回です。`,
-  `トリガー数は0個から数えます。最後のトリガー数が${TRIGGER_MIN.toLocaleString()}〜${TRIGGER_MAX.toLocaleString()}個に収まらない組み合わせは候補に含めません。`,
-  `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は「その他の候補」に分けます。`,
-  `${RELEASE.name}が${UNLIKELY_RELEASE.toLocaleString()}回以上で、最後のトリガー数が${UNLIKELY_TRIGGER.toLocaleString()}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
-  `同じ${BONUS.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
-];
+// 仕様の文言。ボーナス回数が0回から続く形式は最大の回数を、飛びがある形式は計算する回数を書く。
+// 「その他の候補」に分けるボーナス回数が無い形式では、その項目を出さない
+function specItems(f) {
+  const { charge: C, release: R, bonus: B } = f;
+  const bonusRule = B.counts.every((c, i) => c === i)
+    ? `使えるのは最大${B.counts.at(-1)}回です。`
+    : `回数は${B.counts.map(c => `${c}回`).join('か')}として計算します。`;
+  return [
+    `${MOVE_NAME.charge}: ${fmt(C.point)}ptとトリガー${fmt(C.trigger)}個を得ます。`,
+    `${MOVE_NAME.release}: トリガー${fmt(-R.trigger)}個を使い、${fmt(R.point)}ptを得ます。`,
+    `${MOVE_NAME.bonus}: ${fmt(B.point)}ptを得ます。${bonusRule}`,
+    `トリガー数は0個から数えます。最後のトリガー数が${fmt(TRIGGER_MIN)}〜${fmt(TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
+    ...(f.rare.length ? [`${MOVE_NAME.bonus}は${bonusLabel(f.likely)}のことがほとんどのため、${bonusLabel(f.rare)}の候補は「その他の候補」に分けます。`] : []),
+    `${MOVE_NAME.release}が${fmt(f.unlikely.release)}回以上で、最後のトリガー数が${fmt(f.unlikely.trigger)}個以上の組み合わせ${f.rare.length ? 'も' : 'は'}、ほとんど起きないため「その他の候補」に分けます。`,
+    `同じ${MOVE_NAME.bonus}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
+  ];
+}
 
 const CSV_HINT = `1行に1人分を「名前,現在pt」の形で書きます。区切りはカンマかタブです。`
   + `ptの桁区切りのカンマと末尾の「pt」はそのままで構いません。1行目が見出し（数字が無く「pt」か「ポイント」を含む）なら読み飛ばします。`
@@ -321,27 +370,27 @@ const esc = s => String(s).replace(/[&<>"']/g,
 const fmt = n => n.toLocaleString();
 const signed = n => (n > 0 ? '+' : '') + fmt(n);
 
-// pt = 貯め×595 + 吐き×634 + ボーナス×3000 を満たす回数の組をすべて返す。
+// 形式 f で pt = 貯め×貯めpt + 吐き×吐きpt + ボーナス×ボーナスpt を満たす回数の組をすべて返す。
 // ボーナス回数と吐き回数を決めると貯め回数が決まるため、その2つを走査する。
 // 最後のトリガー数が範囲内なら、途中も範囲内に収まる順序がある。下限に届くまで吐きを打ち、
 // 届いたら貯めを1回挟む。吐きが尽きたら残りの貯めを打つ。途中の最大は0か最後の値で、最小は下限以上。
 // そのため判定は最後のトリガー数だけで行う。
-// 残り rest − 吐き×634 が595で割り切れる吐き回数は、595 / gcd(634, 595) 回ごとに現れる。
-// 最初の1回を1周期の中で探し、以降はその刻みで進める（1刻みで回すと、MAX_PT で1件約95万回になる）
-const gcd = (x, y) => (y === 0 ? x : gcd(y, x % y));
-const RELEASE_STEP = CHARGE.point / gcd(RELEASE.point, CHARGE.point);
-function solve(pt) {
+// 残り rest − 吐き×吐きpt が貯めptで割り切れる吐き回数は、貯めpt / gcd(吐きpt, 貯めpt) 回ごとに現れる
+// （シアターは595回、チューンは75回）。最初の1回を1周期の中で探し、以降はその刻みで進める
+// （1刻みで回すと、シアターの MAX_PT で1件約95万回になる）
+function solve(pt, f) {
+  const { charge: C, release: R, bonus: B, releaseStep: step } = f;
   const list = [];
-  for (let c = 0; c <= BONUS.max; c++) {
-    const rest = pt - BONUS.point * c;
+  for (const c of B.counts) {
+    const rest = pt - B.point * c;
     let first = 0;
-    while (first < RELEASE_STEP && (rest - RELEASE.point * first) % CHARGE.point !== 0) first++;
-    if (first === RELEASE_STEP) continue;   // 1周期で割り切れなければ、この回数の組は無い
-    for (let b = first; RELEASE.point * b <= rest; b += RELEASE_STEP) {
-      const r = rest - RELEASE.point * b;
-      if (r % CHARGE.point !== 0) continue;
-      const a = r / CHARGE.point;
-      const trigger = CHARGE.trigger * a + RELEASE.trigger * b;
+    while (first < step && (rest - R.point * first) % C.point !== 0) first++;
+    if (first === step) continue;   // 1周期で割り切れなければ、この回数の組は無い
+    for (let b = first; R.point * b <= rest; b += step) {
+      const r = rest - R.point * b;
+      if (r % C.point !== 0) continue;
+      const a = r / C.point;
+      const trigger = C.trigger * a + R.trigger * b;
       if (trigger >= TRIGGER_MIN && trigger <= TRIGGER_MAX) list.push({ charge: a, release: b, bonus: c, trigger });
     }
   }
@@ -349,23 +398,31 @@ function solve(pt) {
 }
 
 // トリガー数が0に近い順。同点の並べ方は決めない。現在の定数では、同じボーナス回数の候補どうしの
-// トリガー数の差が 484,330 の倍数になる。絶対値が等しい2件があれば負の側は −242,165 以下で、下限で除外済み
+// トリガー数の差が、シアターは 484,330、チューンは 64,645 の倍数になる。絶対値が等しい2件があれば
+// 負の側はシアターで −242,165 以下、チューンで −64,645 以下（差が奇数のため）で、下限で除外済み
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
-// 主な候補か（ボーナスが0回・5回で、吐き4桁かつトリガー数50万以上の組でない）。それ以外は「その他の候補」
-const isLikely = x => LIKELY_BONUS.includes(x.bonus)
-  && !(x.release >= UNLIKELY_RELEASE && x.trigger >= UNLIKELY_TRIGGER);
+// 形式 f で主な候補か（ボーナスが0回・5回で、吐きが f.unlikely.release 回以上かつ
+// トリガー数が f.unlikely.trigger 以上の組でない）。それ以外は「その他の候補」
+const isLikely = (x, f) => f.likely.includes(x.bonus)
+  && !(x.release >= f.unlikely.release && x.trigger >= f.unlikely.trigger);
 
 // 表示するボーナス回数の切り替え。'all' は0回・5回の両方。1〜4回は切り替えによらず表示する
-const BONUS_VIEWS = ['all', ...LIKELY_BONUS.map(String)];
 const viewLabel = v => (v === 'all' ? '両方' : `${v}回`);
-const shownBonus = view => BONUS_ORDER.filter(c => view === 'all' || String(c) === view || !LIKELY_BONUS.includes(c));
+const shownBonus = (view, f) => f.order.filter(c => view === 'all' || String(c) === view || !LIKELY_BONUS.includes(c));
+// 切り替えを出さない形式では、選んであった回数によらず両方を表示する（選択は形式を戻したときのために残す）
+const viewOf = (state, f) => (f.views.length ? state.bonusView : 'all');
 
 // 1人分の候補のうち、ボーナス回数が bonus で主な候補か（keep）が一致するものを、トリガー数が0に近い順で返す。
 // 1人用と CSV 一括の両方がこれで分ける（片側だけ分け方が変わらないように）
-const candidates = (list, bonus, keep) => list.filter(x => x.bonus === bonus && isLikely(x) === keep).sort(byTrigger);
+const candidates = (list, bonus, keep, f) => list.filter(x => x.bonus === bonus && isLikely(x, f) === keep).sort(byTrigger);
 // 主な候補が無いときだけ、別枠の候補を最初から開く
-const initialRareOpen = list => !list.some(isLikely);
+const initialRareOpen = (list, f) => !list.some(x => isLikely(x, f));
+// CSV一括の1人分を計算し、別枠の開閉を初期状態にする（一括の計算と形式の切り替えで使う）
+const solvePerson = (p, f) => {
+  const list = solve(p.pt, f);
+  return { ...p, list, rareOpen: initialRareOpen(list, f) };
+};
 
 // ptの文字列を { pt, digits } か { reason } にする。全角は半角へ寄せ、前後の空白と末尾の pt を除く。
 // 受け付けるのは数字だけか、3桁ごとにカンマか空白で区切った数字（区切りの混在は不可）。0以上の整数に限る（小数・指数表記・負は不可）
@@ -412,39 +469,46 @@ function parseCsv(text) {
 // 20文字はコードポイントで数える（UTF-16 の単位で切ると絵文字のサロゲートペアが割れる）
 const shorten = s => { const cs = [...s]; return cs.length > 20 ? `${cs.slice(0, 20).join('')}…` : s; };
 
-// CSV一括のエラーは、読めなかった行（batchRowErrors: { line, raw, reason } の配列）と入力全体のエラー（batchError: 文字列）に分ける
+// CSV一括のエラーは、読めなかった行（batchRowErrors: { line, raw, reason } の配列）と入力全体のエラー（batchError: 文字列）に分ける。
+// list・batch は常に format の形式で計算した結果（形式を切り替えたら計算し直す）
 const appState = {
   pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchRowErrors: [], batchError: '', bonusView: 'all',
+  format: FORMAT_KEYS[0],
 };
 
 // CSV一括の ViewModel。人ごとに主な候補・その他の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる。
 // 読めなかった行は行番号つきの文字列にする（errors）。入力全体のエラーは message
 function buildBatchViewModel(state) {
-  const shown = shownBonus(state.bonusView);
+  const f = FORMATS[state.format];
+  const view = viewOf(state, f);
+  const shown = shownBonus(view, f);
   const people = (state.batch || []).map((p, index) => {
-    const pick = keep => shown.flatMap(c => candidates(p.list, c, keep));
+    const pick = keep => shown.flatMap(c => candidates(p.list, c, keep, f));
     return { index, name: p.name, pt: p.pt, total: p.list.length, likely: pick(true), rare: pick(false), rareOpen: p.rareOpen };
   });
   const errors = state.batchRowErrors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
-  return { kind: 'batch', people, errors, message: state.batchError, bonusView: state.bonusView };
+  return { kind: 'batch', people, errors, message: state.batchError, formatName: f.name, views: f.views, bonusView: view };
 }
 
 // ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
-// 1グループの候補は最大3件（トリガー数の範囲の幅が、候補どうしの差 484,330 の2倍強のため）。全件を表示する
+// 1グループの候補は、シアターで最大3件、チューンで最大16件（トリガー数の範囲の幅 1,009,999 を、
+// 候補どうしの差 484,330・64,645 で割った数）。全件を表示する
 // その他の候補のグループは、1〜4回は0件でも出し、0回・5回は候補がある回数だけ出す
 function buildViewModel(state) {
   if (state.mode === 'batch') return buildBatchViewModel(state);
   if (state.error) return { kind: 'error', message: state.error };
   if (!state.list) return { kind: 'idle' };
-  if (state.list.length === 0) return { kind: 'none' };
-  const shown = shownBonus(state.bonusView);
-  const toGroup = keep => c => ({ bonus: c, items: candidates(state.list, c, keep) });
-  const likely = shown.filter(c => LIKELY_BONUS.includes(c)).map(toGroup(true));
-  const rare   = shown.map(toGroup(false)).filter(g => g.items.length > 0 || RARE_BONUS.includes(g.bonus));
+  const f = FORMATS[state.format];
+  if (state.list.length === 0) return { kind: 'none', formatName: f.name };
+  const view = viewOf(state, f);
+  const shown = shownBonus(view, f);
+  const toGroup = keep => c => ({ bonus: c, items: candidates(state.list, c, keep, f) });
+  const likely = shown.filter(c => f.likely.includes(c)).map(toGroup(true));
+  const rare   = shown.map(toGroup(false)).filter(g => g.items.length > 0 || f.rare.includes(g.bonus));
   const count  = gs => gs.reduce((n, g) => n + g.items.length, 0);
   return {
-    kind: 'list', pt: state.pt, likely, rare, likelyCount: count(likely), rareCount: count(rare),
-    rareOpen: state.rareOpen, bonusView: state.bonusView,
+    kind: 'list', pt: state.pt, formatName: f.name, likely, rare, likelyCount: count(likely), rareCount: count(rare),
+    rareOpen: state.rareOpen, views: f.views, bonusView: view,
   };
 }
 
@@ -454,24 +518,29 @@ const MARK = '<span aria-hidden="true">◇</span>';
 // 候補1件の行。CSV一括ではボーナス回数のセルを先頭に足す
 const _countCell = (name, n) => `<span class="cell"><span class="stage-badge">${esc(name)}</span><span><span class="num">${fmt(n)}</span>回</span></span>`;
 const _rowHtml = (x, withBonus = false) => `<div class="result-row">
-      ${withBonus ? _countCell(BONUS.name, x.bonus) : ''}${_countCell(CHARGE.name, x.charge)}
-      ${_countCell(RELEASE.name, x.release)}
+      ${withBonus ? _countCell(MOVE_NAME.bonus, x.bonus) : ''}${_countCell(MOVE_NAME.charge, x.charge)}
+      ${_countCell(MOVE_NAME.release, x.release)}
       <span class="cell cell-trig">トリガー数<span class="num">${signed(x.trigger)}</span></span>
     </div>`;
 
 function _groupHtml(g) {
-  const head = `<h2 class="group-title">${esc(BONUS.name)} ${g.bonus}回<span class="group-count">${g.items.length}件</span></h2>`;
+  const head = `<h2 class="group-title">${esc(MOVE_NAME.bonus)} ${g.bonus}回<span class="group-count">${g.items.length}件</span></h2>`;
   if (g.items.length === 0) return `<section class="group">${head}<div class="group-empty">該当なし</div></section>`;
   const rows = g.items.map(x => _rowHtml(x)).join('');
   return `<section class="group">${head}${rows}</section>`;
 }
 
-// サマリの中に置く、表示するボーナス回数の切り替え（上端に固定されるため、スクロール中も切り替えられる）
-function _viewRowHtml(view) {
-  const btns = BONUS_VIEWS.map(v =>
-    `<button type="button" class="seg-btn" data-action="bonus-view" data-view="${v}" aria-pressed="${v === view}">${viewLabel(v)}</button>`).join('');
-  return `<div class="srow"><span>表示する${esc(BONUS.name)}回数</span><span class="seg" role="group" aria-label="表示する${esc(BONUS.name)}回数">${btns}</span></div>`;
+// サマリの中に置く、表示するボーナス回数の切り替え（上端に固定されるため、スクロール中も切り替えられる）。
+// 切り替えの無い形式（vm.views が空）では行ごと出さない
+function _viewRowHtml(vm) {
+  if (vm.views.length === 0) return '';
+  const btns = vm.views.map(v =>
+    `<button type="button" class="seg-btn" data-action="bonus-view" data-view="${v}" aria-pressed="${v === vm.bonusView}">${viewLabel(v)}</button>`).join('');
+  return `<div class="srow"><span>表示する${esc(MOVE_NAME.bonus)}回数</span><span class="seg" role="group" aria-label="表示する${esc(MOVE_NAME.bonus)}回数">${btns}</span></div>`;
 }
+
+// サマリの形式の行（形式の切り替えは画面上部にあり、スクロールすると見えなくなるため）
+const _formatRowHtml = vm => `<div class="srow"><span>形式</span><span class="sval">${esc(vm.formatName)}</span></div>`;
 
 function _personHtml(p) {
   const head = `<h2 class="person-title"><span class="person-name">${esc(p.name)}</span><span class="person-pt"><span class="num">${fmt(p.pt)}</span>pt</span></h2>`;
@@ -491,8 +560,9 @@ function _batchHtml(vm) {
   if (vm.people.length === 0) return '';
   const summary = `<div class="summary">
     <div class="srow"><span>計算した人数</span><span class="sval">${vm.people.length}人</span></div>
+    ${_formatRowHtml(vm)}
     <div class="srow"><span>読めなかった行</span><span class="sval">${vm.errors.length}行</span></div>
-    ${_viewRowHtml(vm.bonusView)}
+    ${_viewRowHtml(vm)}
   </div>`;
   return summary + vm.people.map(_personHtml).join('');
 }
@@ -501,13 +571,15 @@ function _resultHtml(vm) {
   if (vm.kind === 'batch') return _batchHtml(vm);
   if (vm.kind === 'idle')  return '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
   if (vm.kind === 'error') return '';   // 入力のエラーは入力欄の直下に出す（_renderFieldError）
-  if (vm.kind === 'none')  return '<div class="placeholder warn">指定のポイントに合う組み合わせがありません。入力したポイントを確かめてください</div>';
+  // 形式の選び間違いでも組み合わせが無くなるため、形式も確かめるよう促す
+  if (vm.kind === 'none')  return `<div class="placeholder warn">${esc(vm.formatName)}形式では、指定のポイントに合う組み合わせがありません。入力したポイントと形式を確かめてください</div>`;
 
   const summary = `<div class="summary">
     <div class="srow"><span>指定のポイント</span><span class="sval">${fmt(vm.pt)}</span></div>
+    ${_formatRowHtml(vm)}
     <div class="srow"><span>主な候補</span><span class="sval">${vm.likelyCount}件</span></div>
     <div class="srow"><span>その他の候補</span><span class="sval">${vm.rareCount}件</span></div>
-    ${_viewRowHtml(vm.bonusView)}
+    ${_viewRowHtml(vm)}
   </div>`;
   const likely = vm.likely.map(_groupHtml).join('');
   if (vm.rareCount === 0) return summary + likely;
@@ -536,12 +608,12 @@ function _renderFieldError(vm) {
   set('inp-csv', vm.kind === 'batch' ? [vm.message, ...vm.errors].filter(Boolean).join('\n') : '');
 }
 
-// 計算したときに読み上げる短い要約。結果欄の全体（全員の名前・全候補）は読み上げない。
-// 入力のエラーは入力欄のエラー欄が知らせるため空にする
+// 計算したとき・形式を切り替えたときに読み上げる短い要約。結果欄の全体（全員の名前・全候補）は読み上げない。
+// 形式の名前を入れる（切り替えの前後で件数が同じでも文言が変わる）。入力のエラーは入力欄のエラー欄が知らせるため空にする
 function statusText(vm) {
-  if (vm.kind === 'list')  return `主な候補${vm.likelyCount}件、その他の候補${vm.rareCount}件を計算しました`;
-  if (vm.kind === 'none')  return '指定のポイントに合う組み合わせがありません';
-  if (vm.kind === 'batch' && vm.people.length > 0) return `${vm.people.length}人を計算しました。読めなかった行 ${vm.errors.length}行`;
+  if (vm.kind === 'list')  return `${vm.formatName}形式で主な候補${vm.likelyCount}件、その他の候補${vm.rareCount}件を計算しました`;
+  if (vm.kind === 'none')  return `${vm.formatName}形式では、指定のポイントに合う組み合わせがありません`;
+  if (vm.kind === 'batch' && vm.people.length > 0) return `${vm.formatName}形式で${vm.people.length}人を計算しました。読めなかった行 ${vm.errors.length}行`;
   return '';
 }
 const announce = vm => { document.getElementById('result-status').textContent = statusText(vm); };
@@ -563,10 +635,11 @@ function doCalc() {
     appState.error = r.reason;
     return renderAll();
   }
+  const f = FORMATS[appState.format];
   appState.pt       = r.pt;
   appState.error    = '';
-  appState.list     = solve(appState.pt);
-  appState.rareOpen = initialRareOpen(appState.list);
+  appState.list     = solve(appState.pt, f);
+  appState.rareOpen = initialRareOpen(appState.list, f);
   return renderAll();
 }
 
@@ -582,25 +655,62 @@ function doBatch() {
   } else if (people.length > BATCH_MAX) {
     appState.batchError = `一度に計算できるのは${BATCH_MAX}人までです（${people.length}人分あります）`;
   } else {
-    appState.batch = people.map(p => {
-      const list = solve(p.pt);
-      return { ...p, list, rareOpen: initialRareOpen(list) };
-    });
+    appState.batch = people.map(p => solvePerson(p, FORMATS[appState.format]));
     appState.batchRowErrors = errors;
   }
   return renderAll();
 }
 
-document.getElementById('spec-body').innerHTML = SPEC_ITEMS.map(s => `<li>${esc(s)}</li>`).join('');
+// 形式を切り替え、計算済みの結果（1人用・CSV一括の両方）をその形式で計算し直す。別枠の開閉は初期状態へ戻る。
+// 入力のエラーと未計算の状態はそのまま（入力欄の値は読み直さない）
+function setFormat(key) {
+  const f = FORMATS[key];
+  appState.format = key;
+  if (appState.list) {
+    appState.list     = solve(appState.pt, f);
+    appState.rareOpen = initialRareOpen(appState.list, f);
+  }
+  if (appState.batch) appState.batch = appState.batch.map(p => solvePerson(p, f));
+  renderSpec();
+}
+
+const renderSpec = () => {
+  document.getElementById('spec-body').innerHTML = specItems(FORMATS[appState.format]).map(s => `<li>${esc(s)}</li>`).join('');
+};
+// 形式の切り替えボタン。押されている側を aria-pressed で示す
+const _formatSwitchHtml = key => FORMAT_KEYS.map(k =>
+  `<button type="button" class="seg-btn" data-format="${k}" aria-pressed="${k === key}">${esc(FORMATS[k].name)}</button>`).join('');
+const renderFormatSwitch = () => {
+  document.getElementById('format-switch').innerHTML = _formatSwitchHtml(appState.format);
+};
+
+renderFormatSwitch();
+renderSpec();
 document.getElementById('inp-csv-hint').textContent = CSV_HINT;
+
+// 形式の切り替え。決まった値以外と、選択中の形式のボタンは何もしない。
+// 表示中の結果があるときだけ描き直し、計算したときと同じく短い要約を読み上げる。
+// 未計算・入力のエラーの表示は形式によらないため描き直さない（同じエラーを再送信と見なして読み上げ直さない）
+document.getElementById('format-switch').addEventListener('click', e => {
+  const btn = e.target.closest('[data-format]');
+  const key = btn && btn.dataset.format;
+  if (!FORMAT_KEYS.includes(key) || key === appState.format) return;
+  setFormat(key);
+  renderFormatSwitch();
+  if (appState.mode === 'single' ? appState.list : appState.batch) announce(renderAll());
+  // 描画し直すと押したボタンが DOM から外れフォーカスを失うため、同じボタンへ戻す（key は検証済み）
+  const next = document.getElementById('format-switch').querySelector(`[data-format="${key}"]`);
+  if (next) next.focus();
+});
 
 document.getElementById('result').addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   // 開閉は表示中のモードのボタンだけが変える（別のモードの状態を残したまま描き直さない）
   if (btn.dataset.action === 'rare' && appState.mode === 'single') appState.rareOpen = !appState.rareOpen;
-  // 表示の切り替えは再計算しても保つ。決まった値以外は無視する
-  if (btn.dataset.action === 'bonus-view' && BONUS_VIEWS.includes(btn.dataset.view)) appState.bonusView = btn.dataset.view;
+  // 表示の切り替えは再計算しても保つ。表示中の形式で決まった値以外は無視する
+  const views = FORMATS[appState.format].views;
+  if (btn.dataset.action === 'bonus-view' && views.includes(btn.dataset.view)) appState.bonusView = btn.dataset.view;
   if (btn.dataset.action === 'rare-person' && appState.mode === 'batch') {
     // Number('') は 0 になるため、数字だけの index に限る
     const p = /^\d+$/.test(btn.dataset.index || '') ? (appState.batch || [])[Number(btn.dataset.index)] : null;
@@ -613,7 +723,7 @@ document.getElementById('result').addEventListener('click', e => {
   let sel = null;
   if (d.action === 'rare') sel = '[data-action="rare"]';
   else if (d.action === 'rare-person' && /^\d+$/.test(d.index || '')) sel = `[data-action="rare-person"][data-index="${d.index}"]`;
-  else if (d.action === 'bonus-view' && BONUS_VIEWS.includes(d.view)) sel = `[data-action="bonus-view"][data-view="${d.view}"]`;
+  else if (d.action === 'bonus-view' && views.includes(d.view)) sel = `[data-action="bonus-view"][data-view="${d.view}"]`;
   const next = sel && document.getElementById('result').querySelector(sel);
   if (next) next.focus();
 });

@@ -42,7 +42,7 @@ function parseBatch(html) {
 const batchResult = p => parseBatch(p.el('result').innerHTML);
 const csvError = p => [p.el('inp-csv-error').textContent, p.el('inp-csv').getAttribute('aria-invalid')];
 const ptError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
-const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['読めなかった行', `${bad}行`]];
+const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['形式', 'シアター'], ['読めなかった行', `${bad}行`]];
 // 文言は ◇（aria-hidden の span）の後
 const TOGGLE = (i, open, n) => [String(i), String(open), `その他の候補（${n}件）を${open ? '隠す' : '表示'}`];
 const MSG_EMPTY = '名前と現在ptを1行以上入力してください';
@@ -386,7 +386,8 @@ test('一括: 行エラーと入力全体のエラーは状態を分ける。読
   assert.deepEqual([p.appState.batchRowErrors, p.appState.batchError], [[], MSG_EMPTY]);
   // 人がいて全体のエラーもある状態（今の操作経路では起きない）でも、全体のエラーは読めなかった行に数えない
   const state = {
-    mode: 'batch', bonusView: 'all', batch: [{ line: 1, name: 'a', pt: 595, list: p.solve(595), rareOpen: false }],
+    mode: 'batch', format: 'theater', bonusView: 'all',
+    batch: [{ line: 1, name: 'a', pt: 595, list: p.solve(595, p.FORMATS.theater), rareOpen: false }],
     batchRowErrors: [{ line: 2, raw: 'b,abc', reason: MSG_NOT_INT }], batchError: '全体の警告',
   };
   const vm = p.buildBatchViewModel(state);
@@ -400,7 +401,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   const p = loadMove();
   const status = () => p.el('result-status').textContent;
   p.batch('a,595\nb,abc\nc,57120');
-  assert.equal(status(), '2人を計算しました。読めなかった行 1行');
+  assert.equal(status(), 'シアター形式で2人を計算しました。読めなかった行 1行');
   // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
   p.el('result-status').textContent = 'sentinel';
   p.clickResult('rare-person', 1);
@@ -408,7 +409,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   assert.equal(status(), 'sentinel');
   p.clickView('all');
   p.batch('a,595');
-  assert.equal(status(), '1人を計算しました。読めなかった行 0行');
+  assert.equal(status(), 'シアター形式で1人を計算しました。読めなかった行 0行');
   for (const text of ['', 'a\nb,abc']) {
     p.batch('a,595');
     p.batch(text);
@@ -416,7 +417,7 @@ test('読み上げ: 一括で計算したときだけ人数と読めなかった
   }
   // 1人用へ切り替えると1人用の要約になる
   p.calc(595);
-  assert.equal(status(), '主な候補1件、その他の候補0件を計算しました');
+  assert.equal(status(), 'シアター形式で主な候補1件、その他の候補0件を計算しました');
 });
 
 test('一括: 名前の HTML 特殊文字はエスケープして表示する', () => {

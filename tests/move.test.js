@@ -1,5 +1,6 @@
 'use strict';
 // 対象: move-estimate-tool.html（solve / buildViewModel / 描画 / doCalc / イベント委譲 / HTML の静的な取り決め）
+// 計算・表示はシアター形式（開いたときの形式）で確かめる。チューン形式と形式の切り替えは tests/move-tune.test.js
 //
 // 観点表で外したもの（理由）:
 // - トリガー数 −10,001・999,999: 595×貯め − 180×吐き は常に5の倍数で、これらの値は作れない。
@@ -19,19 +20,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadMove, parseResult, viewButtons, HTML } = require('./helpers/load-move');
+const { compareRange: compareWith } = require('./helpers/move-forward');
 
 const mv = loadMove();
-const { solve } = mv;
+const T = mv.FORMATS.theater;
+const solve = pt => mv.solve(pt, T);
 const key = x => `${x.charge},${x.release},${x.bonus},${x.trigger}`;
 const result = p => parseResult(p.el('result').innerHTML);
 const outline = p => result(p).groups.map(g => [g.title, g.total, g.rows.length]);
+// 前向き列挙に渡すシアター形式の値（HTML の定数を読まずに書き写す）
+const THEATER = { charge: [595, 595], release: [634, -180], bonus: 3000, counts: [0, 1, 2, 3, 4, 5] };
+const compareRange = (lo, hi) => compareWith(solve, lo, hi, THEATER);
 
 const MSG_IDLE = '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
-const MSG_NONE = '<div class="placeholder warn">指定のポイントに合う組み合わせがありません。入力したポイントを確かめてください</div>';
+const MSG_NONE = '<div class="placeholder warn">シアター形式では、指定のポイントに合う組み合わせがありません。入力したポイントと形式を確かめてください</div>';
 const MSG_OVER = `ポイントは${(99999999).toLocaleString()}以下にしてください`;
 const fieldError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
 const SUMMARY = (pt, likely, rare) => [
-  ['指定のポイント', pt.toLocaleString()], ['主な候補', `${likely}件`], ['その他の候補', `${rare}件`],
+  ['指定のポイント', pt.toLocaleString()], ['形式', 'シアター'], ['主な候補', `${likely}件`], ['その他の候補', `${rare}件`],
 ];
 const EMPTY = c => ({ title: `ボーナス ${c}回`, total: 0, rows: [], empty: true });
 // label は ◇（aria-hidden の span）の後の文言
@@ -39,52 +45,23 @@ const TOGGLE_CLOSED = { expanded: 'false', label: 'その他の候補を表示' 
 const TOGGLE_OPEN = { expanded: 'true', label: 'その他の候補を隠す' };
 const VIEWS = pressed => ['all', '0', '5'].map(v => [v, String(v === pressed), v === 'all' ? '両方' : `${v}回`]);
 
-// 検算用: solve とは別の手順（回数の組を先にすべて作り、合計ポイントで引く）で、pt が [lo, hi] の候補を数え直す
-function forward(lo, hi) {
-  const byPt = new Map();
-  let low = 0, high = 0;
-  for (let c = 0; c <= 5; c++)
-    for (let b = 0; 634 * b + 3000 * c <= hi; b++) {
-      const base = 634 * b + 3000 * c;
-      for (let a = Math.max(0, Math.ceil((lo - base) / 595)); 595 * a + base <= hi; a++) {
-        const trigger = 595 * a - 180 * b;
-        if (trigger < -10000) { low++; continue; }
-        if (trigger > 999999) { high++; continue; }
-        const pt = 595 * a + base;
-        if (!byPt.has(pt)) byPt.set(pt, []);
-        byPt.get(pt).push(`${a},${b},${c},${trigger}`);
-      }
-    }
-  return { byPt, low, high };
-}
-
-function compareRange(lo, hi) {
-  const { byPt, low, high } = forward(lo, hi);
-  let compared = 0;
-  const mismatch = [];
-  for (let pt = lo; pt <= hi; pt++) {
-    const want = (byPt.get(pt) || []).sort();
-    compared += want.length;
-    if (solve(pt).map(key).sort().join('|') !== want.join('|')) mismatch.push(pt);
-  }
-  // 不一致が数万件あると deepEqual の差分生成でメモリが尽きるため、件数で比べて先頭だけを表示する
-  assert.equal(mismatch.length, 0, `不一致の pt（先頭5件）: ${mismatch.slice(0, 5).join(', ')}`);
-  return { compared, low, high };
-}
-
-test('定数: 動きのポイント・トリガー数の範囲・入力上限は依頼仕様の値', () => {
-  assert.deepEqual(mv.CHARGE, { name: '貯め', point: 595, trigger: 595 });
-  assert.deepEqual(mv.RELEASE, { name: '吐き', point: 634, trigger: -180 });
-  assert.deepEqual(mv.BONUS, { name: 'ボーナス', point: 3000, max: 5 });
-  assert.deepEqual([mv.TRIGGER_MIN, mv.TRIGGER_MAX], [-10000, 999999]);
-  assert.deepEqual([mv.LIKELY_BONUS, mv.RARE_BONUS], [[0, 5], [1, 2, 3, 4]]);
-  assert.deepEqual([mv.UNLIKELY_RELEASE, mv.UNLIKELY_TRIGGER], [1000, 500000]);
-  assert.deepEqual([mv.BONUS_ORDER, mv.BONUS_VIEWS], [[0, 5, 1, 2, 3, 4], ['all', '0', '5']]);
+test('定数: シアター形式の動きのポイント・トリガー数の範囲・入力上限は依頼仕様の値', () => {
+  assert.deepEqual(mv.MOVE_NAME, { charge: '貯め', release: '吐き', bonus: 'ボーナス' });
+  assert.deepEqual(mv.FORMAT_SPECS.theater, {
+    name: 'シアター', charge: { point: 595, trigger: 595 }, release: { point: 634, trigger: -180 },
+    bonus: { point: 3000, counts: [0, 1, 2, 3, 4, 5] }, unlikely: { release: 1000, trigger: 500000 },
+  });
+  assert.deepEqual([mv.TRIGGER_MIN, mv.TRIGGER_MAX, mv.LIKELY_BONUS], [-10000, 999999, [0, 5]]);
+  // 定義から決まる値: 吐きの刻みは 595 / gcd(634, 595) = 595
+  assert.deepEqual([T.key, T.releaseStep, T.likely, T.rare, T.order, T.views],
+    ['theater', 595, [0, 5], [1, 2, 3, 4], [0, 5, 1, 2, 3, 4], ['all', '0', '5']]);
+  // 開いたときの形式はシアター
+  assert.deepEqual([mv.FORMAT_KEYS, mv.appState.format], [['theater', 'tune'], 'theater']);
   assert.equal(mv.MAX_PT, 99999999);
 });
 
 test('isLikely: ボーナス0回・5回のうち、吐き1,000回以上かつトリガー数500,000以上の組だけを外す（境界の前後）', () => {
-  const x = (bonus, release, trigger) => mv.isLikely({ charge: 0, release, bonus, trigger });
+  const x = (bonus, release, trigger) => mv.isLikely({ charge: 0, release, bonus, trigger }, T);
   const cases = [
     [0, 1000, 500000, false], [5, 1000, 500000, false], [0, 5662, 965165, false],
     // 片方だけ満たす組は主な候補に残す
@@ -98,10 +75,11 @@ test('isLikely: ボーナス0回・5回のうち、吐き1,000回以上かつト
   assert.deepEqual(cases.map(([b, r, t]) => x(b, r, t)), cases.map(c => c[3]));
 });
 
-test('shownBonus: 切り替えで0回・5回の片方を外し、1〜4回は常に残す。並びは BONUS_ORDER', () => {
-  assert.deepEqual(['all', '0', '5'].map(mv.shownBonus), [[0, 5, 1, 2, 3, 4], [0, 1, 2, 3, 4], [5, 1, 2, 3, 4]]);
+test('shownBonus: 切り替えで0回・5回の片方を外し、1〜4回は常に残す。並びは形式の order', () => {
+  const shown = v => mv.shownBonus(v, T);
+  assert.deepEqual(['all', '0', '5'].map(shown), [[0, 5, 1, 2, 3, 4], [0, 1, 2, 3, 4], [5, 1, 2, 3, 4]]);
   // 数値の 0・5 は文字列の data-view と一致しない（クリック経路は常に文字列）。'all' 以外の未知の値は1〜4回だけ
-  assert.deepEqual([0, 5, '1', 'All', ''].map(mv.shownBonus), Array(5).fill([1, 2, 3, 4]));
+  assert.deepEqual([0, 5, '1', 'All', ''].map(shown), Array(5).fill([1, 2, 3, 4]));
 });
 
 test('solve: 0〜100,000 の全ポイントで前向き列挙と一致する（トリガー下限で外れる組を含む範囲）', () => {
@@ -171,7 +149,6 @@ test('solve: 入力上限 99,999,999 でも全候補が式・トリガー数の�
 test('bonusLabel: 連続する回数は「〜」、飛びがある・1件以下は「・」で並べる', () => {
   assert.deepEqual([[0, 5], [1, 2, 3, 4], [2, 3], [1, 2, 4], [3], []].map(mv.bonusLabel),
     ['0回・5回', '1〜4回', '2〜3回', '1回・2回・4回', '3回', '']);
-  assert.deepEqual([mv.LIKELY_LABEL, mv.RARE_LABEL], ['0回・5回', '1〜4回']);
 });
 
 test('表示: サマリと行の書式（0は符号なし・正は+・3桁区切り）、0件のグループは「該当なし」', () => {
@@ -384,7 +361,7 @@ test('読み上げ: 結果欄全体は aria-live にせず、計算したとき�
   const status = () => p.el('result-status').textContent;
   assert.equal(status(), '');
   p.calc(57120);
-  assert.equal(status(), '主な候補1件、その他の候補1件を計算しました');
+  assert.equal(status(), 'シアター形式で主な候補1件、その他の候補1件を計算しました');
   // 開閉・表示の切り替えでは書き換えない（対照: 計算し直せば書き換える）
   p.el('result-status').textContent = 'sentinel';
   p.clickResult('rare');
@@ -393,9 +370,9 @@ test('読み上げ: 結果欄全体は aria-live にせず、計算したとき�
   // 件数は表示中のボーナス回数で数えるため、両方の表示へ戻してから計算する
   p.clickView('all');
   p.calc(4605373);
-  assert.equal(status(), '主な候補3件、その他の候補10件を計算しました');
+  assert.equal(status(), 'シアター形式で主な候補3件、その他の候補10件を計算しました');
   p.calc(1);
-  assert.equal(status(), '指定のポイントに合う組み合わせがありません');
+  assert.equal(status(), 'シアター形式では、指定のポイントに合う組み合わせがありません');
   // 入力のエラーは入力欄のエラー欄が知らせるため、要約は空にする
   p.calc('abc');
   assert.equal(status(), '');
@@ -525,18 +502,19 @@ test('HTML: エラー欄は空のとき display:none にせず、余白は文言
   assert.equal(/margin-top/.test(rule('.field-error')), false);
 });
 
-test('仕様: 定数から組んだ7項目を表示し、トグルで開閉する', () => {
+test('仕様: シアター形式の定数から組んだ7項目を表示し、トグルで開閉する', () => {
   const p = loadMove();
-  const { CHARGE: C, RELEASE: R, BONUS: B } = p;
+  const { charge: C, release: R, bonus: B, unlikely: U } = p.FORMAT_SPECS.theater;
+  const N = p.MOVE_NAME;
   const n = v => v.toLocaleString();
   const want = [
-    `${C.name}: ${n(C.point)}ptとトリガー${n(C.trigger)}個を得ます。`,
-    `${R.name}: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
-    `${B.name}: ${n(B.point)}ptを得ます。使えるのは最大${B.max}回です。`,
+    `${N.charge}: ${n(C.point)}ptとトリガー${n(C.trigger)}個を得ます。`,
+    `${N.release}: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
+    `${N.bonus}: ${n(B.point)}ptを得ます。使えるのは最大${B.counts.at(-1)}回です。`,
     `トリガー数は0個から数えます。最後のトリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
-    `${B.name}は${p.LIKELY_LABEL}のことがほとんどのため、${p.RARE_LABEL}の候補は「その他の候補」に分けます。`,
-    `${R.name}が${n(p.UNLIKELY_RELEASE)}回以上で、最後のトリガー数が${n(p.UNLIKELY_TRIGGER)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
-    `同じ${B.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
+    `${N.bonus}は0回・5回のことがほとんどのため、1〜4回の候補は「その他の候補」に分けます。`,
+    `${N.release}が${n(U.release)}回以上で、最後のトリガー数が${n(U.trigger)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
+    `同じ${N.bonus}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));
 

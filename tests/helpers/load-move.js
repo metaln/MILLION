@@ -10,11 +10,11 @@ const HTML_PATH = path.join(__dirname, '..', '..', 'move-estimate-tool.html');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 
 const EXPORTS = [
-  'CHARGE', 'RELEASE', 'BONUS', 'TRIGGER_MIN', 'TRIGGER_MAX', 'LIKELY_BONUS', 'RARE_BONUS', 'MAX_PT',
-  'LIKELY_LABEL', 'RARE_LABEL', 'SPEC_ITEMS', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
+  'MOVE_NAME', 'FORMAT_SPECS', 'FORMATS', 'FORMAT_KEYS', 'TRIGGER_MIN', 'TRIGGER_MAX', 'LIKELY_BONUS', 'MAX_PT',
+  'specItems', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
   'buildViewModel', '_groupHtml', '_resultHtml', '_renderFieldError', 'renderAll', 'doCalc',
   'BATCH_MAX', 'CSV_HINT', 'parseCsv', 'buildBatchViewModel', 'doBatch',
-  'UNLIKELY_RELEASE', 'UNLIKELY_TRIGGER', 'BONUS_ORDER', 'BONUS_VIEWS', 'isLikely', 'shownBonus',
+  'isLikely', 'shownBonus', 'setFormat',
 ];
 
 // patches: [{ from, to }] 各 from はスクリプト内でちょうど1回出現すること（別関数への誤爆防止）
@@ -28,21 +28,24 @@ function loadMove({ patches = [] } = {}) {
   const requestAnimationFrame = cb => { raf.requested++; rafQueue.push(cb); return rafQueue.length; };
   const flushRaf = () => { while (rafQueue.length) rafQueue.shift()(); };
 
-  // #result の querySelector: `[属性="値"]` の連なりだけを受け付け、innerHTML 中の <button> 開始タグのうち
+  // #result・#format-switch の querySelector: `[属性="値"]` の連なりだけを受け付け、innerHTML 中の <button> 開始タグのうち
   // 全属性が一致する最初の1件を返す。focus() を呼ぶと focused に一致した属性の object を1件足す
   const focused = [];
-  document.getElementById('result').querySelector = sel => {
-    if (!/^(\[[\w-]+="[^"]*"\])+$/.test(sel)) throw new Error(`未対応のセレクタ: ${sel}`);
-    const want = [...sel.matchAll(/\[([\w-]+)="([^"]*)"\]/g)].map(m => [m[1], m[2]]);
-    for (const tag of document.getElementById('result').innerHTML.matchAll(/<button\s([^>]*)>/g)) {
-      const attrs = {};
-      for (const m of tag[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
-      if (want.every(([k, v]) => attrs[k] === v)) {
-        return { focus: () => focused.push(Object.fromEntries(want)) };
+  for (const id of ['result', 'format-switch']) {
+    const box = document.getElementById(id);
+    box.querySelector = sel => {
+      if (!/^(\[[\w-]+="[^"]*"\])+$/.test(sel)) throw new Error(`未対応のセレクタ: ${sel}`);
+      const want = [...sel.matchAll(/\[([\w-]+)="([^"]*)"\]/g)].map(m => [m[1], m[2]]);
+      for (const tag of box.innerHTML.matchAll(/<button\s([^>]*)>/g)) {
+        const attrs = {};
+        for (const m of tag[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
+        if (want.every(([k, v]) => attrs[k] === v)) {
+          return { focus: () => focused.push(Object.fromEntries(want)) };
+        }
       }
-    }
-    return null;
-  };
+      return null;
+    };
+  }
 
   const mod = { exports: {} };
   // eslint-disable-next-line no-new-func
@@ -81,11 +84,20 @@ function loadMove({ patches = [] } = {}) {
     target: { closest: () => ({ dataset: view === undefined ? { action: 'bonus-view' } : { action: 'bonus-view', view } }) },
   });
 
-  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView, raf, flushRaf, focused };
+  // 形式の切り替えボタン（data-format）。format=undefined は data-format の無い箇所、null はボタンの外のクリック
+  const clickFormat = format => fire('format-switch', 'click', {
+    target: { closest: () => (format === null ? null : { dataset: format === undefined ? {} : { format } }) },
+  });
+
+  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView, clickFormat, raf, flushRaf, focused };
 }
 
 // 結果欄の切り替えボタンの [data-view, aria-pressed] の並び
 const viewButtons = html => [...html.matchAll(/data-action="bonus-view" data-view="([^"]*)" aria-pressed="(true|false)">([^<]*)<\/button>/g)]
+  .map(m => [m[1], m[2], m[3]]);
+
+// 形式の切り替えボタンの [data-format, aria-pressed, 文言] の並び
+const formatButtons = html => [...html.matchAll(/<button type="button" class="seg-btn" data-format="([^"]*)" aria-pressed="(true|false)">([^<]*)<\/button>/g)]
   .map(m => [m[1], m[2], m[3]]);
 
 // サマリ欄の [ラベル, 値] の並び（1人用・CSV一括で共通）
@@ -109,4 +121,4 @@ function parseResult(html) {
   return { summary, groups, toggle: toggle ? { expanded: toggle[1], label: toggle[2] } : null };
 }
 
-module.exports = { loadMove, parseResult, parseSummary, viewButtons, HTML, HTML_PATH };
+module.exports = { loadMove, parseResult, parseSummary, viewButtons, formatButtons, HTML, HTML_PATH };
