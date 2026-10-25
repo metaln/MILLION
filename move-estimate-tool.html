@@ -395,7 +395,8 @@ function parseCsv(text) {
   return { people, errors };
 }
 
-const shorten = s => (s.length > 20 ? `${s.slice(0, 20)}…` : s);
+// 20文字はコードポイントで数える（UTF-16 の単位で切ると絵文字のサロゲートペアが割れる）
+const shorten = s => { const cs = [...s]; return cs.length > 20 ? `${cs.slice(0, 20).join('')}…` : s; };
 
 // CSV一括のエラーは、読めなかった行（batchRowErrors: { line, raw, reason } の配列）と入力全体のエラー（batchError: 文字列）に分ける
 const appState = {

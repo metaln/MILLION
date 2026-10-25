@@ -300,6 +300,22 @@ test('一括: 読めない行は入力欄の直下に行番号つきで並べ、
   assert.deepEqual(batchResult(p).people.map(x => x.name), ['a']);
 });
 
+test('一括: 行を切る20文字はコードポイントで数える（絵文字のサロゲートペアを途中で切らない）', () => {
+  const p = loadMove();
+  const k19 = 'あ'.repeat(19);
+  // 区切りの無い行（行全体がそのまま表示される）。前提: 絵文字は UTF-16 で2単位
+  assert.equal('😀'.length, 2);
+  const shown = raw => { p.batch(`a,595\n${raw}`); return csvError(p)[0]; };
+  // 20文字（UTF-16 では21単位）は切らない。21文字は20文字目の絵文字まで残して切る
+  assert.equal(shown(`${k19}😀`), `2行目「${k19}😀」: ${MSG_NO_SEP}`);
+  assert.equal(shown(`${k19}😀😀`), `2行目「${k19}😀…」: ${MSG_NO_SEP}`);
+  // 対照: 絵文字の無い20文字・21文字
+  assert.equal(shown(`${k19}い`), `2行目「${k19}い」: ${MSG_NO_SEP}`);
+  assert.equal(shown(`${k19}いう`), `2行目「${k19}い…」: ${MSG_NO_SEP}`);
+  // 切った後に片割れのサロゲート（U+D800〜U+DFFF の単独）が残らない
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(shown(`${'あ'.repeat(18)}😀😀😀`)), false);
+});
+
 test('一括: 全行が読めないときは結果欄を空にする（前の結果を残さない）', () => {
   const p = loadMove();
   p.batch('a,595');
