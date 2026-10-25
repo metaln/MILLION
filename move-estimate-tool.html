@@ -353,6 +353,12 @@ const BONUS_VIEWS = ['all', ...LIKELY_BONUS.map(String)];
 const viewLabel = v => (v === 'all' ? '両方' : `${v}回`);
 const shownBonus = view => BONUS_ORDER.filter(c => view === 'all' || String(c) === view || !LIKELY_BONUS.includes(c));
 
+// 1人分の候補のうち、ボーナス回数が bonus で主な候補か（keep）が一致するものを、トリガー数が0に近い順で返す。
+// 1人用と CSV 一括の両方がこれで分ける（片側だけ分け方が変わらないように）
+const candidates = (list, bonus, keep) => list.filter(x => x.bonus === bonus && isLikely(x) === keep).sort(byTrigger);
+// 主な候補が無いときだけ、別枠の候補を最初から開く
+const initialRareOpen = list => !list.some(isLikely);
+
 // ptの文字列を { pt, digits } か { reason } にする。全角は半角へ寄せ、前後の空白と末尾の pt を除く。
 // 受け付けるのは数字だけか、3桁ごとにカンマか空白で区切った数字（区切りの混在は不可）。0以上の整数に限る（小数・指数表記・負は不可）
 const PT_FORMAT = /^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,3}(?: \d{3})+)$/;
@@ -408,7 +414,7 @@ const appState = {
 function buildBatchViewModel(state) {
   const shown = shownBonus(state.bonusView);
   const people = (state.batch || []).map((p, index) => {
-    const pick = keep => shown.flatMap(c => p.list.filter(x => x.bonus === c && isLikely(x) === keep).sort(byTrigger));
+    const pick = keep => shown.flatMap(c => candidates(p.list, c, keep));
     return { index, name: p.name, pt: p.pt, total: p.list.length, likely: pick(true), rare: pick(false), rareOpen: p.rareOpen };
   });
   const errors = state.batchRowErrors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
@@ -424,7 +430,7 @@ function buildViewModel(state) {
   if (!state.list) return { kind: 'idle' };
   if (state.list.length === 0) return { kind: 'none' };
   const shown = shownBonus(state.bonusView);
-  const toGroup = keep => c => ({ bonus: c, items: state.list.filter(x => x.bonus === c && isLikely(x) === keep).sort(byTrigger) });
+  const toGroup = keep => c => ({ bonus: c, items: candidates(state.list, c, keep) });
   const likely = shown.filter(c => LIKELY_BONUS.includes(c)).map(toGroup(true));
   const rare   = shown.map(toGroup(false)).filter(g => g.items.length > 0 || RARE_BONUS.includes(g.bonus));
   const count  = gs => gs.reduce((n, g) => n + g.items.length, 0);
@@ -549,8 +555,7 @@ function doCalc() {
   appState.pt       = r.pt;
   appState.error    = '';
   appState.list     = solve(appState.pt);
-  // 主な候補が無いときだけ、別枠の候補を最初から開く
-  appState.rareOpen = !appState.list.some(isLikely);
+  appState.rareOpen = initialRareOpen(appState.list);
   return renderAll();
 }
 
@@ -568,8 +573,7 @@ function doBatch() {
   } else {
     appState.batch = people.map(p => {
       const list = solve(p.pt);
-      // 主な候補が無い人だけ、別枠の候補を最初から開く
-      return { ...p, list, rareOpen: !list.some(isLikely) };
+      return { ...p, list, rareOpen: initialRareOpen(list) };
     });
     appState.batchRowErrors = errors;
   }
