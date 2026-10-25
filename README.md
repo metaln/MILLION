@@ -32,6 +32,6 @@ node --test tests/*.test.js
 - `ℹ todo` は、既知の不具合を示すテストの件数。不具合は `改修予定メモ.md` に登録してあり、直したらテストの `todo` 指定を外す
 - `tests/` をディレクトリのまま渡す書き方（`node --test tests/`）は Windows で失敗するため、上の書き方で実行する
 
-テストは各HTMLの `<script>` を Node.js で読み込み、画面の部品を簡易的に再現して動かす（`tests/helpers/load-pst.js` / `tests/helpers/load-move.js`）。
+テストは各HTMLの `<script>` を Node.js で読み込み、画面の部品を簡易的に再現して動かす（`tests/helpers/load-pst.js` / `tests/helpers/load-move.js`。両者が使う共通部品は `tests/helpers/harness.js`）。
 動き検討ツールのテストは `tests/move.test.js`、CSVでまとめて計算する機能のテストは `tests/move-batch.test.js`。
 ブラウザでの見た目（色・レイアウト）は検査しない。

@@ -1,10 +1,10 @@
 'use strict';
 // move-estimate-tool.html の <script> を同一 realm で評価し、内部関数と簡易DOMを返す。
-// 簡易DOMの組み立ては load-pst.js と共通（HTML 本文の id 付きタグから生成し、初期値も HTML から読む）。
+// 簡易DOMの組み立ては harness.js と共通（HTML 本文の id 付きタグから生成し、初期値も HTML から読む）。
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { extractScript, buildDocument } = require('./load-pst');
+const { extractScript, buildDocument, applyPatches } = require('./harness');
 
 const HTML_PATH = path.join(__dirname, '..', '..', 'move-estimate-tool.html');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
@@ -19,12 +19,7 @@ const EXPORTS = [
 
 // patches: [{ from, to }] 各 from はスクリプト内でちょうど1回出現すること（別関数への誤爆防止）
 function loadMove({ patches = [] } = {}) {
-  let code = extractScript(HTML);
-  for (const { from, to } of patches) {
-    const n = code.split(from).length - 1;
-    if (n !== 1) throw new Error(`patch 対象の出現回数が ${n}: ${from}`);
-    code = code.replace(from, to);
-  }
+  const code = applyPatches(extractScript(HTML), patches);
   const document = buildDocument(HTML);
 
   // requestAnimationFrame: キューに積み、flushRaf で実行する。raf.requested は要求の累計回数
@@ -93,10 +88,13 @@ function loadMove({ patches = [] } = {}) {
 const viewButtons = html => [...html.matchAll(/data-action="bonus-view" data-view="([^"]*)" aria-pressed="(true|false)">([^<]*)<\/button>/g)]
   .map(m => [m[1], m[2], m[3]]);
 
+// サマリ欄の [ラベル, 値] の並び（1人用・CSV一括で共通）
+const parseSummary = html => [...html.matchAll(/<div class="srow"><span>([^<]*)<\/span><span class="sval">([^<]*)<\/span><\/div>/g)]
+  .map(m => [m[1], m[2]]);
+
 // _resultHtml の出力を、サマリ・グループ・別枠の切り替えボタンに分解
 function parseResult(html) {
-  const summary = [...html.matchAll(/<div class="srow"><span>([^<]*)<\/span><span class="sval">([^<]*)<\/span><\/div>/g)]
-    .map(m => [m[1], m[2]]);
+  const summary = parseSummary(html);
   const groups = html.split('<section class="group">').slice(1).map(chunk => {
     const head = chunk.match(/<h2 class="group-title">([^<]*)<span class="group-count">(\d+)件<\/span><\/h2>/);
     const rows = [...chunk.matchAll(/<div class="result-row">([\s\S]*?)<\/div>/g)]
@@ -111,4 +109,4 @@ function parseResult(html) {
   return { summary, groups, toggle: toggle ? { expanded: toggle[1], label: toggle[2] } : null };
 }
 
-module.exports = { loadMove, parseResult, viewButtons, HTML, HTML_PATH };
+module.exports = { loadMove, parseResult, parseSummary, viewButtons, HTML, HTML_PATH };

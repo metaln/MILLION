@@ -12,7 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadMove, parseResult, viewButtons, HTML } = require('./helpers/load-move');
+const { loadMove, parseResult, parseSummary, viewButtons, HTML } = require('./helpers/load-move');
 
 const mv = loadMove();
 const { parseCsv } = mv;
@@ -22,8 +22,7 @@ const REAL = fs.readFileSync(path.join(__dirname, '..', 'move-batch-sample.csv')
 
 // _batchHtml の出力を、サマリと人ごとの枠に分解。行は別枠ボタンの前（主な候補）と後（別枠）に分ける
 function parseBatch(html) {
-  const summary = [...html.matchAll(/<div class="srow"><span>([^<]*)<\/span><span class="sval">([^<]*)<\/span><\/div>/g)]
-    .map(m => [m[1], m[2]]);
+  const summary = parseSummary(html);
   const rowsOf = s => [...s.matchAll(/<div class="result-row">([\s\S]*?)<\/div>/g)]
     .map(m => [...m[1].matchAll(/<span class="num">([^<]*)<\/span>/g)].map(n => n[1]));
   const people = html.split('<section class="person">').slice(1).map(chunk => {
