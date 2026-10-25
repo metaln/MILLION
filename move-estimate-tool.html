@@ -57,8 +57,8 @@ h1, .group-title { text-wrap: balance; }
 }
 .field input:focus { border-color: #3460FB; }
 .field input[aria-invalid="true"] { border-color: #D42020; }
-.field-error { margin-top: 5px; font-size: 12px; font-weight: 600; color: #D42020; }
-.field-error:empty { display: none; }
+.field-error { font-size: 12px; font-weight: 600; color: #D42020; }
+.field-error:not(:empty) { margin-top: 5px; }
 /* CSV一括の入力欄。読めなかった行は1行ずつ改行して並べる */
 .batch-card { margin-top: 16px; }
 .field-hint { font-size: 12px; color: #767676; line-height: 1.6; margin-bottom: 6px; }
@@ -498,9 +498,19 @@ function _resultHtml(vm) {
 }
 
 // エラーは計算した側の入力欄にだけ出し、もう一方の入力欄のエラーは消す
+// 同じ文言のままでは読み上げられないため、いったん空にして次のフレームで入れ直す。
+// 入れ直しを待つ間に次の set が来たら、古い入れ直しは何も書かない（欄ごとの通し番号で判定する）
+const _errorSeq = {};
 function _renderFieldError(vm) {
   const set = (id, message) => {
-    document.getElementById(`${id}-error`).textContent = message;
+    const box = document.getElementById(`${id}-error`);
+    const seq = _errorSeq[id] = (_errorSeq[id] || 0) + 1;
+    if (message && box.textContent === message) {
+      box.textContent = '';
+      requestAnimationFrame(() => { if (_errorSeq[id] === seq) box.textContent = message; });
+    } else {
+      box.textContent = message;
+    }
     document.getElementById(id).setAttribute('aria-invalid', message ? 'true' : 'false');
   };
   set('inp-pt', vm.kind === 'error' ? vm.message : '');

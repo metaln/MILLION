@@ -27,6 +27,12 @@ function loadMove({ patches = [] } = {}) {
   }
   const document = buildDocument(HTML);
 
+  // requestAnimationFrame: キューに積み、flushRaf で実行する。raf.requested は要求の累計回数
+  const rafQueue = [];
+  const raf = { requested: 0 };
+  const requestAnimationFrame = cb => { raf.requested++; rafQueue.push(cb); return rafQueue.length; };
+  const flushRaf = () => { while (rafQueue.length) rafQueue.shift()(); };
+
   // #result の querySelector: `[属性="値"]` の連なりだけを受け付け、innerHTML 中の <button> 開始タグのうち
   // 全属性が一致する最初の1件を返す。focus() を呼ぶと focused に一致した属性の object を1件足す
   const focused = [];
@@ -45,7 +51,8 @@ function loadMove({ patches = [] } = {}) {
 
   const mod = { exports: {} };
   // eslint-disable-next-line no-new-func
-  new Function('module', 'document', `${code}\n;module.exports = { ${EXPORTS.join(', ')} };`)(mod, document);
+  new Function('module', 'document', 'requestAnimationFrame',
+    `${code}\n;module.exports = { ${EXPORTS.join(', ')} };`)(mod, document, requestAnimationFrame);
 
   const el = id => {
     const e = document.getElementById(id);
@@ -79,7 +86,7 @@ function loadMove({ patches = [] } = {}) {
     target: { closest: () => ({ dataset: view === undefined ? { action: 'bonus-view' } : { action: 'bonus-view', view } }) },
   });
 
-  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView, focused };
+  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView, raf, flushRaf, focused };
 }
 
 // 結果欄の切り替えボタンの [data-view, aria-pressed] の並び

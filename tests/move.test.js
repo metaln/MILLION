@@ -433,6 +433,91 @@ test('フォーカス: 別枠・表示切り替えのボタンを押したら、
   assert.equal(p.focused.length, before);
 });
 
+// エラー欄の再通知の検査用。submit は入力を送り、err は [エラー欄の文言, aria-invalid] を返す
+const ERROR_FIELDS = [
+  {
+    name: '1人用', id: 'inp-pt', bad: 'abc', badMsg: 'ポイントが0以上の整数ではありません',
+    bad2: '', bad2Msg: 'ポイントを入力してください', good: 595, submit: (p, v) => p.calc(v),
+  },
+  {
+    name: 'CSV', id: 'inp-csv', bad: 'b,595\na,abc', badMsg: '2行目「a,abc」: ポイントが0以上の整数ではありません',
+    bad2: '', bad2Msg: '名前と現在ptを1行以上入力してください', good: 'b,595', submit: (p, v) => p.batch(v),
+  },
+];
+const errOf = (p, id) => [p.el(`${id}-error`).textContent, p.el(id).getAttribute('aria-invalid')];
+
+test('エラー欄: 同じエラーの再送信は、いったん空にして次のフレームで文言を入れ直す（1人用・CSV）', () => {
+  for (const f of ERROR_FIELDS) {
+    const p = loadMove();
+    f.submit(p, f.bad);
+    assert.deepEqual([errOf(p, f.id), p.raf.requested], [[f.badMsg, 'true'], 0], `${f.name} 初回は即時`);
+    f.submit(p, f.bad);
+    // 文言が変わらないと読み上げられないため、空にしてから次のフレームで入れる。aria-invalid は即時
+    assert.deepEqual([errOf(p, f.id), p.raf.requested], [['', 'true'], 1], `${f.name} 再送信の直後`);
+    p.flushRaf();
+    assert.deepEqual(errOf(p, f.id), [f.badMsg, 'true'], `${f.name} flush 後`);
+    // 3回目も同じ
+    f.submit(p, f.bad);
+    assert.deepEqual([errOf(p, f.id), p.raf.requested], [['', 'true'], 2], `${f.name} 3回目の直後`);
+    p.flushRaf();
+    assert.deepEqual(errOf(p, f.id), [f.badMsg, 'true'], `${f.name} 3回目 flush 後`);
+  }
+});
+
+test('エラー欄: 別の文言・空文字は即時に書き、フレームを要求しない', () => {
+  for (const f of ERROR_FIELDS) {
+    const p = loadMove();
+    f.submit(p, f.bad);
+    f.submit(p, f.bad2);
+    assert.deepEqual([errOf(p, f.id), p.raf.requested], [[f.bad2Msg, 'true'], 0], `${f.name} 別の文言`);
+    f.submit(p, f.good);
+    assert.deepEqual([errOf(p, f.id), p.raf.requested], [['', 'false'], 0], `${f.name} 正常値で空`);
+    // 対照: 同じ文言の再送信ならフレームを要求する
+    f.submit(p, f.bad);
+    f.submit(p, f.bad);
+    assert.equal(p.raf.requested, 1, `${f.name} 対照`);
+  }
+});
+
+test('エラー欄: 入れ直しを待つ間に別の送信が来たら、古い入れ直しは何も書かない', () => {
+  for (const f of ERROR_FIELDS) {
+    // 正常値で送信 → 空のまま
+    let p = loadMove();
+    f.submit(p, f.bad);
+    f.submit(p, f.bad);
+    f.submit(p, f.good);
+    p.flushRaf();
+    assert.deepEqual(errOf(p, f.id), ['', 'false'], `${f.name} 正常値`);
+    // 別のエラー → 別のエラー文言が残る
+    p = loadMove();
+    f.submit(p, f.bad);
+    f.submit(p, f.bad);
+    f.submit(p, f.bad2);
+    p.flushRaf();
+    assert.deepEqual(errOf(p, f.id), [f.bad2Msg, 'true'], `${f.name} 別のエラー`);
+    // 対照: 待つ間に何も来なければ古い文言が入る
+    p = loadMove();
+    f.submit(p, f.bad);
+    f.submit(p, f.bad);
+    p.flushRaf();
+    assert.deepEqual(errOf(p, f.id), [f.badMsg, 'true'], `${f.name} 対照`);
+  }
+});
+
+test('HTML: エラー欄は空のとき display:none にせず、余白は文言があるときだけ付ける', () => {
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  assert.equal(css.startsWith('<style>') && css.includes('.field-error {'), true);
+  const hidden = /\.field-error:empty\s*\{[^}]*display:\s*none/;
+  assert.equal(hidden.test(css), false);
+  // 対照: 同じ検出式は変更前の規則を拾う
+  assert.equal(hidden.test('\n.field-error:empty { display: none; }\n'), true);
+  const rule = sel => (css.match(new RegExp(`\\n${sel.replace(/[.():]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1];
+  assert.equal(typeof rule('.field-error:not(:empty)'), 'string');
+  assert.equal(/\bmargin-top: 5px;/.test(rule('.field-error:not(:empty)')), true);
+  assert.equal(typeof rule('.field-error'), 'string');
+  assert.equal(/margin-top/.test(rule('.field-error')), false);
+});
+
 test('仕様: 定数から組んだ7項目を表示し、トグルで開閉する', () => {
   const p = loadMove();
   const { CHARGE: C, RELEASE: R, BONUS: B } = p;
