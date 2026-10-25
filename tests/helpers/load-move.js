@@ -13,6 +13,7 @@ const EXPORTS = [
   'CHARGE', 'RELEASE', 'BONUS', 'TRIGGER_MIN', 'TRIGGER_MAX', 'LIKELY_BONUS', 'RARE_BONUS', 'MAX_PT',
   'LIKELY_LABEL', 'RARE_LABEL', 'SPEC_ITEMS', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
   'buildViewModel', '_groupHtml', '_resultHtml', '_renderFieldError', 'renderAll', 'doCalc',
+  'BATCH_MAX', 'CSV_HINT', 'parseCsv', 'buildBatchViewModel', 'doBatch',
 ];
 
 // patches: [{ from, to }] 各 from はスクリプト内でちょうど1回出現すること（別関数への誤爆防止）
@@ -42,12 +43,20 @@ function loadMove({ patches = [] } = {}) {
     fire('calc-form', 'submit', { preventDefault: () => { prevented = true; } });
     return prevented;
   };
-  // #result のイベント委譲へ渡すクリック。action=null は data-action の無い箇所のクリック
-  const clickResult = action => fire('result', 'click', {
-    target: { closest: () => (action == null ? null : { dataset: { action } }) },
+  // CSV一括のフォームの submit。戻り値は既定動作（送信）を止めたかどうか
+  const batch = text => {
+    el('inp-csv').value = text;
+    let prevented = false;
+    fire('batch-form', 'submit', { preventDefault: () => { prevented = true; } });
+    return prevented;
+  };
+  // #result のイベント委譲へ渡すクリック。action=null は data-action の無い箇所のクリック。
+  // index は CSV一括の人ごとのボタン（data-index）。ブラウザと同じく文字列で渡す
+  const clickResult = (action, index) => fire('result', 'click', {
+    target: { closest: () => (action == null ? null : { dataset: index == null ? { action } : { action, index: String(index) } }) },
   });
 
-  return { ...mod.exports, document, el, fire, calc, clickResult };
+  return { ...mod.exports, document, el, fire, calc, batch, clickResult };
 }
 
 // _resultHtml の出力を、サマリ・グループ・別枠の切り替えボタンに分解

@@ -21,7 +21,7 @@ h1 {
   margin-bottom: 20px;
 }
 h1, .group-title { text-wrap: balance; }
-.spec-body li, .placeholder, .field-error { text-wrap: pretty; }
+.spec-body li, .placeholder, .field-error, .field-hint { text-wrap: pretty; }
 .layout {
   display: flex;
   gap: 20px;
@@ -63,6 +63,25 @@ h1, .group-title { text-wrap: balance; }
 .field input[type=number][aria-invalid="true"] { border-color: #D42020; }
 .field-error { margin-top: 5px; font-size: 12px; font-weight: 600; color: #D42020; }
 .field-error:empty { display: none; }
+/* CSV一括の入力欄。読めなかった行は1行ずつ改行して並べる */
+.batch-card { margin-top: 16px; }
+.field-hint { font-size: 12px; color: #767676; line-height: 1.6; margin-bottom: 6px; }
+.field textarea {
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  resize: vertical;
+}
+.field textarea:focus { border-color: #3460FB; }
+.field textarea[aria-invalid="true"] { border-color: #D42020; }
+#inp-csv-error { white-space: pre-line; }
 .btn-calc {
   width: 100%;
   padding: 9px;
@@ -179,6 +198,21 @@ h1, .group-title { text-wrap: balance; }
 .num { font-size: 14px; color: #1a1a1a; font-variant-numeric: tabular-nums; }
 .rare-toggle { margin: 0 0 14px; }
 
+/* ─── CSV一括の結果（1人1枠）─── */
+.person { margin-bottom: 22px; }
+.person-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+.person-name { min-width: 0; overflow-wrap: anywhere; }
+.person-pt { font-size: 13px; font-weight: 400; color: #4D4D4D; font-variant-numeric: tabular-nums; }
+.person .rare-toggle { margin: 2px 0 8px; }
+
 @media (max-width: 620px) {
   .layout { flex-direction: column; }
   .left { flex: none; width: 100%; }
@@ -204,6 +238,15 @@ h1, .group-title { text-wrap: balance; }
       <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body"></ul>
     </form>
+    <form class="input-card batch-card" id="batch-form" novalidate>
+      <div class="field">
+        <label for="inp-csv">CSVでまとめて計算</label>
+        <p class="field-hint" id="inp-csv-hint"></p>
+        <textarea id="inp-csv" rows="8" spellcheck="false" aria-describedby="inp-csv-hint inp-csv-error" placeholder="かぶりこ,4605373&#10;まさや,4,560,338pt"></textarea>
+        <p class="field-error" id="inp-csv-error" aria-live="polite"></p>
+      </div>
+      <button type="submit" class="btn-calc" id="btn-batch">まとめて計算する</button>
+    </form>
   </div>
 
   <div class="right">
@@ -223,6 +266,7 @@ const TRIGGER_MAX  = 999999;                 // ゲーム内のトリガー数�
 const LIKELY_BONUS = [0, BONUS.max];         // ボーナス回数はほとんどがこのどちらか
 const RARE_BONUS   = Array.from({ length: BONUS.max + 1 }, (_, c) => c).filter(c => !LIKELY_BONUS.includes(c));
 const MAX_PT       = 99999999;               // 指定ポイントの入力上限（8桁）
+const BATCH_MAX    = 50;                     // CSVで一度に計算する人数の上限（運用は1時間帯あたり5〜15人）
 
 const bonusLabel = cs => cs.length > 1 && cs.at(-1) - cs[0] === cs.length - 1
   ? `${cs[0]}〜${cs.at(-1)}回`
@@ -238,6 +282,10 @@ const SPEC_ITEMS = [
   `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は別枠に分けます。`,
   `同じ${BONUS.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
 ];
+
+const CSV_HINT = `1行に1人分を「名前,現在pt」の形で書きます。区切りはカンマかタブです。`
+  + `ptの桁区切りのカンマと末尾の「pt」はそのままで構いません。1行目が見出し（数字なし）なら読み飛ばします。`
+  + `一度に${BATCH_MAX}人まで計算できます。`;
 
 // HTML特殊文字エスケープ（innerHTML描画の防御）
 const esc = s => String(s).replace(/[&<>"']/g,
@@ -269,11 +317,50 @@ function solve(pt) {
 // トリガー数の差が 484,330 の倍数になる。絶対値が等しい2件があれば負の側は −242,165 以下で、下限で除外済み
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
-const appState = { pt: 0, list: null, error: '', rareOpen: false };
+// 貼り付けたCSVを人ごとの { line, name, pt } と、読めなかった行 { line, raw, reason } に分ける。
+// 名前は最初の区切りより前（名前にカンマを含む行は正しく読めない）。
+// ptは全角を半角へ寄せ、桁区切り・空白・末尾の pt を除いてから、0以上の整数だけを受け付ける（小数・指数表記・負は不可）
+function parseCsv(text) {
+  const people = [], errors = [];
+  let first = true;
+  String(text).split(/\r\n|\r|\n/).forEach((raw, i) => {
+    const s = raw.trim();   // trim は先頭の BOM（U+FEFF）も除く
+    if (!s) return;
+    const isFirst = first;
+    first = false;
+    const line = i + 1;
+    const fail = reason => { errors.push({ line, raw: s, reason }); };
+    const sep = s.search(/[,，\t]/);
+    if (sep < 0) return fail('区切り（カンマかタブ）がありません');
+    const name = s.slice(0, sep).trim();
+    const ptText = s.slice(sep + 1).normalize('NFKC').replace(/[,\s]/g, '').replace(/pt$/i, '');
+    if (isFirst && !/\d/.test(ptText)) return;   // 見出し行
+    if (!name) return fail('名前がありません');
+    if (!/^\d+$/.test(ptText)) return fail('ポイントが0以上の整数ではありません');
+    const pt = Number(ptText);
+    if (pt > MAX_PT) return fail(`ポイントは${MAX_PT.toLocaleString()}以下にしてください`);
+    people.push({ line, name, pt });
+  });
+  return { people, errors };
+}
+
+const shorten = s => (s.length > 20 ? `${s.slice(0, 20)}…` : s);
+
+const appState = { pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchErrors: [] };
+
+// CSV一括の ViewModel。人ごとに主な候補・別枠の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる
+function buildBatchViewModel(state) {
+  const people = (state.batch || []).map((p, index) => {
+    const pick = cs => cs.flatMap(c => p.list.filter(x => x.bonus === c).sort(byTrigger));
+    return { index, name: p.name, pt: p.pt, likely: pick(LIKELY_BONUS), rare: pick(RARE_BONUS), rareOpen: p.rareOpen };
+  });
+  return { kind: 'batch', people, errors: state.batchErrors };
+}
 
 // ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
 // 1グループの候補は最大3件（トリガー数の範囲の幅が、候補どうしの差 484,330 の2倍強のため）。全件を表示する
 function buildViewModel(state) {
+  if (state.mode === 'batch') return buildBatchViewModel(state);
   if (state.error) return { kind: 'error', message: state.error };
   if (!state.list) return { kind: 'idle' };
   const toGroup = c => ({ bonus: c, items: state.list.filter(x => x.bonus === c).sort(byTrigger) });
@@ -286,18 +373,46 @@ function buildViewModel(state) {
   return { kind: 'list', pt: state.pt, likely, rare, likelyCount, rareCount, rareOpen: state.rareOpen };
 }
 
+// 候補1件の行。CSV一括ではボーナス回数のセルを先頭に足す
+const _countCell = (name, n) => `<span class="cell"><span class="stage-badge">${esc(name)}</span><span><span class="num">${fmt(n)}</span>回</span></span>`;
+const _rowHtml = (x, withBonus = false) => `<div class="result-row">
+      ${withBonus ? _countCell(BONUS.name, x.bonus) : ''}${_countCell(CHARGE.name, x.charge)}
+      ${_countCell(RELEASE.name, x.release)}
+      <span class="cell cell-trig">トリガー数<span class="num">${signed(x.trigger)}</span></span>
+    </div>`;
+
 function _groupHtml(g) {
   const head = `<h2 class="group-title">${esc(BONUS.name)} ${g.bonus}回<span class="group-count">${g.items.length}件</span></h2>`;
   if (g.items.length === 0) return `<section class="group">${head}<div class="group-empty">該当なし</div></section>`;
-  const rows = g.items.map(x => `<div class="result-row">
-      <span class="cell"><span class="stage-badge">${esc(CHARGE.name)}</span><span><span class="num">${fmt(x.charge)}</span>回</span></span>
-      <span class="cell"><span class="stage-badge">${esc(RELEASE.name)}</span><span><span class="num">${fmt(x.release)}</span>回</span></span>
-      <span class="cell cell-trig">トリガー数<span class="num">${signed(x.trigger)}</span></span>
-    </div>`).join('');
+  const rows = g.items.map(x => _rowHtml(x)).join('');
   return `<section class="group">${head}${rows}</section>`;
 }
 
+function _personHtml(p) {
+  const head = `<h2 class="person-title"><span class="person-name">${esc(p.name)}</span><span class="person-pt"><span class="num">${fmt(p.pt)}</span>pt</span></h2>`;
+  if (p.likely.length + p.rare.length === 0)
+    return `<section class="person">${head}<div class="group-empty warn">合う組み合わせがありません</div></section>`;
+  const likely = p.likely.length
+    ? p.likely.map(x => _rowHtml(x, true)).join('')
+    : `<div class="group-empty">${esc(BONUS.name)}${LIKELY_LABEL}の候補はありません</div>`;
+  if (p.rare.length === 0) return `<section class="person">${head}${likely}</section>`;
+  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare-person" data-index="${p.index}" aria-expanded="${p.rareOpen}">◇ ${esc(BONUS.name)}${RARE_LABEL}の候補（${p.rare.length}件）を${p.rareOpen ? '隠す' : '表示'}</button>`;
+  const rare = p.rareOpen ? p.rare.map(x => _rowHtml(x, true)).join('') : '';
+  return `<section class="person">${head}${likely}${toggle}${rare}</section>`;
+}
+
+// 読めなかった行の一覧は入力欄の直下に出す（_renderFieldError）。計算できた人が0人なら結果欄は空
+function _batchHtml(vm) {
+  if (vm.people.length === 0) return '';
+  const summary = `<div class="summary">
+    <div class="srow"><span>計算した人数</span><span class="sval">${vm.people.length}人</span></div>
+    <div class="srow"><span>読めなかった行</span><span class="sval">${vm.errors.length}行</span></div>
+  </div>`;
+  return summary + vm.people.map(_personHtml).join('');
+}
+
 function _resultHtml(vm) {
+  if (vm.kind === 'batch') return _batchHtml(vm);
   if (vm.kind === 'idle')  return '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
   if (vm.kind === 'error') return '';   // 入力のエラーは入力欄の直下に出す（_renderFieldError）
   if (vm.kind === 'none')  return '<div class="placeholder warn">指定のポイントに合う組み合わせがありません。入力したポイントを確かめてください</div>';
@@ -314,10 +429,14 @@ function _resultHtml(vm) {
   return summary + likely + toggle + rare;
 }
 
+// エラーは計算した側の入力欄にだけ出し、もう一方の入力欄のエラーは消す
 function _renderFieldError(vm) {
-  const message = vm.kind === 'error' ? vm.message : '';
-  document.getElementById('inp-pt-error').textContent = message;
-  document.getElementById('inp-pt').setAttribute('aria-invalid', message ? 'true' : 'false');
+  const set = (id, message) => {
+    document.getElementById(`${id}-error`).textContent = message;
+    document.getElementById(id).setAttribute('aria-invalid', message ? 'true' : 'false');
+  };
+  set('inp-pt', vm.kind === 'error' ? vm.message : '');
+  set('inp-csv', vm.kind === 'batch' ? vm.errors.join('\n') : '');
 }
 
 function renderAll() {
@@ -330,6 +449,7 @@ function renderAll() {
 function doCalc() {
   // parseInt は "1e3" を 1 と読むため Number で読む。非有限（Infinity・非数）は0
   const toInt = v => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; };
+  appState.mode     = 'single';
   appState.pt       = toInt(document.getElementById('inp-pt').value);
   if (appState.pt > MAX_PT) {
     appState.list  = null;
@@ -343,13 +463,44 @@ function doCalc() {
   return renderAll();
 }
 
+// 読めなかった行があっても、読めた行は計算する。人数の上限を超えたら誰も計算しない
+function doBatch() {
+  const { people, errors } = parseCsv(document.getElementById('inp-csv').value);
+  appState.mode = 'batch';
+  appState.batch = null;
+  if (people.length + errors.length === 0) {
+    appState.batchErrors = ['名前と現在ptを1行以上入力してください'];
+  } else if (people.length > BATCH_MAX) {
+    appState.batchErrors = [`一度に計算できるのは${BATCH_MAX}人までです（${people.length}人分あります）`];
+  } else {
+    appState.batch = people.map(p => {
+      const list = solve(p.pt);
+      // 主な候補が無い人だけ、別枠の候補を最初から開く
+      return { ...p, list, rareOpen: !list.some(x => LIKELY_BONUS.includes(x.bonus)) };
+    });
+    appState.batchErrors = errors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
+  }
+  return renderAll();
+}
+
 document.getElementById('spec-body').innerHTML = SPEC_ITEMS.map(s => `<li>${esc(s)}</li>`).join('');
+document.getElementById('inp-csv-hint').textContent = CSV_HINT;
 
 document.getElementById('result').addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   if (btn.dataset.action === 'rare') appState.rareOpen = !appState.rareOpen;
+  if (btn.dataset.action === 'rare-person') {
+    // Number('') は 0 になるため、数字だけの index に限る
+    const p = /^\d+$/.test(btn.dataset.index || '') ? (appState.batch || [])[Number(btn.dataset.index)] : null;
+    if (p) p.rareOpen = !p.rareOpen;
+  }
   renderAll();
+});
+
+document.getElementById('batch-form').addEventListener('submit', e => {
+  e.preventDefault();
+  doBatch();
 });
 
 // 入力欄での Enter はフォームの標準動作で submit になる。送信先は無いため既定動作は止める

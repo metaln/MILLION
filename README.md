@@ -7,6 +7,8 @@
 
 `pst-point-tool.html`（ポイント調整）か `move-estimate-tool.html`（動き検討）をブラウザで開く。インストールやサーバーは要らない。
 
+動き検討ツールは、複数人の現在ptをCSVで貼り付けてまとめて計算することもできる。1行に1人分を「名前,現在pt」の形で書く（例: `かぶりこ,4,605,373pt`）。書き方の決まりは画面の入力欄の上に表示している。
+
 ## ファイル構成
 
 | ファイル | 内容 |
@@ -14,6 +16,7 @@
 | `pst-point-tool.html` | ツール本体（画面・計算ロジックを1ファイルに収める） |
 | `pst-point-table.md` | 曲ごとのポイントと進捗の表。ツール内の曲データはこの表と一致させる |
 | `move-estimate-tool.html` | 動き検討ツール本体。動きごとのポイント・トリガー数は `<script>` 冒頭の定数が正本 |
+| `move-batch-sample.csv` | 動き検討ツールへ貼り付けるCSVのサンプル（ランキング画面の画像から写した10人分）。テストでも読む |
 | `tests/` | 自動テスト |
 | `改修予定メモ.md` / `改修済メモ.md` | 改修の予定と記録 |
 
@@ -30,5 +33,5 @@ node --test tests/*.test.js
 - `tests/` をディレクトリのまま渡す書き方（`node --test tests/`）は Windows で失敗するため、上の書き方で実行する
 
 テストは各HTMLの `<script>` を Node.js で読み込み、画面の部品を簡易的に再現して動かす（`tests/helpers/load-pst.js` / `tests/helpers/load-move.js`）。
-動き検討ツールのテストは `tests/move.test.js`。
+動き検討ツールのテストは `tests/move.test.js`、CSVでまとめて計算する機能のテストは `tests/move-batch.test.js`。
 ブラウザでの見た目（色・レイアウト）は検査しない。

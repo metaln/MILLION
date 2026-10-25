@@ -1,0 +1,274 @@
+'use strict';
+// 対象: move-estimate-tool.html の CSV一括計算（parseCsv / doBatch / buildBatchViewModel / 人ごとの描画 / 1人用との切り替え）
+// 候補の計算そのもの（solve）は tests/move.test.js で検算済み。ここでは1人用の表示と同じ候補が出るかを突き合わせる
+//
+// 観点表で外したもの（理由）:
+// - 名前にカンマを含む行: 最初の区切りで名前を切る仕様。正しく読めないことはヒント文に書かず、運用で避ける
+// - 名前の長さ・文字種: 表示するだけで計算に使わない。esc を通ることだけ見る
+// - 人数の上限を超えた入力の計算時間: 上限超過では solve を呼ばない（結果が null のままなことで確かめる）
+// - 結果の見た目（色・折り返し）: 目視確認の範囲
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { loadMove, parseResult, HTML } = require('./helpers/load-move');
+
+const mv = loadMove();
+const { parseCsv } = mv;
+
+// 画像（ランキング画面）から写した10人分のサンプル。1行目は見出し
+const REAL = fs.readFileSync(path.join(__dirname, '..', 'move-batch-sample.csv'), 'utf8');
+
+// _batchHtml の出力を、サマリと人ごとの枠に分解。行は別枠ボタンの前（主な候補）と後（別枠）に分ける
+function parseBatch(html) {
+  const summary = [...html.matchAll(/<div class="srow"><span>([^<]*)<\/span><span class="sval">([^<]*)<\/span><\/div>/g)]
+    .map(m => [m[1], m[2]]);
+  const rowsOf = s => [...s.matchAll(/<div class="result-row">([\s\S]*?)<\/div>/g)]
+    .map(m => [...m[1].matchAll(/<span class="num">([^<]*)<\/span>/g)].map(n => n[1]));
+  const people = html.split('<section class="person">').slice(1).map(chunk => {
+    const head = chunk.match(/<span class="person-name">([^<]*)<\/span><span class="person-pt"><span class="num">([^<]*)<\/span>pt<\/span>/);
+    const note = chunk.match(/<div class="group-empty( warn)?">([^<]*)<\/div>/);
+    const toggle = chunk.match(/data-action="rare-person" data-index="(\d+)" aria-expanded="(true|false)">([^<]*)<\/button>/);
+    const [likely, rare = ''] = chunk.split('<button');
+    return {
+      name: head[1], pt: head[2], likely: rowsOf(likely), rare: rowsOf(rare),
+      note: note ? `${note[1] ? 'warn:' : ''}${note[2]}` : null,
+      toggle: toggle ? [toggle[1], toggle[2], toggle[3]] : null,
+    };
+  });
+  return { summary, people };
+}
+
+const batchResult = p => parseBatch(p.el('result').innerHTML);
+const csvError = p => [p.el('inp-csv-error').textContent, p.el('inp-csv').getAttribute('aria-invalid')];
+const ptError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
+const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['読めなかった行', `${bad}行`]];
+const TOGGLE = (i, open, n) => [String(i), String(open), `◇ ボーナス1〜4回の候補（${n}件）を${open ? '隠す' : '表示'}`];
+const MSG_EMPTY = '名前と現在ptを1行以上入力してください';
+const MSG_NOT_INT = 'ポイントが0以上の整数ではありません';
+const MSG_NO_SEP = '区切り（カンマかタブ）がありません';
+const MSG_NO_NAME = '名前がありません';
+const MSG_OVER = 'ポイントは99,999,999以下にしてください';
+const people = (...xs) => xs.map(([line, name, pt]) => ({ line, name, pt }));
+
+// 1人用の画面で同じptを計算したときの行（ボーナス回数を先頭に足す）。主な候補と別枠を分けて返す
+function singleRows(pt) {
+  const q = loadMove();
+  q.calc(pt);
+  if (q.appState.rareOpen === false) q.clickResult('rare');
+  const groups = parseResult(q.el('result').innerHTML).groups;
+  const rows = gs => gs.flatMap(g => g.rows.map(r => [g.title.match(/(\d+)回/)[1], ...r]));
+  return { likely: rows(groups.slice(0, 2)), rare: rows(groups.slice(2)) };
+}
+
+test('parseCsv: 区切りはカンマ・タブ・全角カンマ。ptの桁区切り・末尾pt（大文字含む）・全角・空白を読む', () => {
+  const text = [
+    'かぶりこ,4,605,373pt', 'まさや\t4560338', 'ゆふぃー，4318802', 'たるつ,３，９００，２０５ｐｔ',
+    'きっさ , 3 892 771 PT', 'ゼロ,0', '上限,99,999,999',
+  ].join('\n');
+  assert.deepEqual(parseCsv(text), {
+    people: people([1, 'かぶりこ', 4605373], [2, 'まさや', 4560338], [3, 'ゆふぃー', 4318802], [4, 'たるつ', 3900205],
+      [5, 'きっさ', 3892771], [6, 'ゼロ', 0], [7, '上限', 99999999]),
+    errors: [],
+  });
+});
+
+test('parseCsv: 行番号は空行を含めた物理行で数える（CRLF・CR・LF の混在、BOM、前後の空白、空白だけの行）', () => {
+  const text = '﻿  a,1190  \r\n\r\n \t \rb,595\n\nc,634\r\n';
+  // 1: a / 2: 空 / 3: 空白だけ / 4: b（CR 区切り）/ 5: 空 / 6: c / 7: 末尾の CRLF の後の空行
+  assert.deepEqual(parseCsv(text), { people: people([1, 'a', 1190], [4, 'b', 595], [6, 'c', 634]), errors: [] });
+  // BOM は行の trim で除かれる（U+FEFF は JS の空白に含まれる）。名前の直前・pt の直後に付いても残らない
+  assert.deepEqual(parseCsv('﻿a,1﻿').people, people([1, 'a', 1]));
+});
+
+test('parseCsv: 最初の行が数字の無い見出しなら読み飛ばす（空行の後でも最初の行）。2行目以降の同じ形はエラー', () => {
+  assert.deepEqual(parseCsv('名前,現在pt\na,595'), { people: people([2, 'a', 595]), errors: [] });
+  assert.deepEqual(parseCsv('\n\n名前\tpt\na,595'), { people: people([4, 'a', 595]), errors: [] });
+  assert.deepEqual(parseCsv('a,595\n名前,現在pt'), {
+    people: people([1, 'a', 595]), errors: [{ line: 2, raw: '名前,現在pt', reason: MSG_NOT_INT }],
+  });
+  // 数字を含む1行目は見出しとして扱わない
+  assert.deepEqual(parseCsv('名前,pt2026\na,595'), {
+    people: people([2, 'a', 595]), errors: [{ line: 1, raw: '名前,pt2026', reason: MSG_NOT_INT }],
+  });
+  // 区切りの無い1行目は見出しにならない（区切りの判定が先）
+  assert.deepEqual(parseCsv('名前\na,595').errors, [{ line: 1, raw: '名前', reason: MSG_NO_SEP }]);
+});
+
+test('parseCsv: 読めない行（区切りなし・名前なし・整数でない・上限超え）は行番号と理由を返し、他の行は読む', () => {
+  const bad = ['a,1', 'かぶりこ 4605373', ',595', ' \t595', 'b,', 'c,abc', 'd,-5', 'e,1.5', 'f,1e3', 'g,595pts', 'h,pt',
+    'i,100,000,000', 'j,99999999'];
+  assert.deepEqual(parseCsv(bad.join('\n')), {
+    people: people([1, 'a', 1], [13, 'j', 99999999]),
+    errors: [
+      { line: 2, raw: 'かぶりこ 4605373', reason: MSG_NO_SEP },
+      { line: 3, raw: ',595', reason: MSG_NO_NAME },
+      // 前後の空白（タブを含む）を除いた結果、区切りが無くなる
+      { line: 4, raw: '595', reason: MSG_NO_SEP },
+      { line: 5, raw: 'b,', reason: MSG_NOT_INT },
+      { line: 6, raw: 'c,abc', reason: MSG_NOT_INT },
+      { line: 7, raw: 'd,-5', reason: MSG_NOT_INT },
+      { line: 8, raw: 'e,1.5', reason: MSG_NOT_INT },
+      { line: 9, raw: 'f,1e3', reason: MSG_NOT_INT },
+      { line: 10, raw: 'g,595pts', reason: MSG_NOT_INT },
+      { line: 11, raw: 'h,pt', reason: MSG_NOT_INT },
+      { line: 12, raw: 'i,100,000,000', reason: MSG_OVER },
+    ],
+  });
+});
+
+test('parseCsv: 空・空行だけは0件。同じ名前は別の人として両方読む', () => {
+  for (const text of ['', '\n\r\n  \n', '﻿']) assert.deepEqual(parseCsv(text), { people: [], errors: [] }, JSON.stringify(text));
+  assert.deepEqual(parseCsv('a,595\na,634').people, people([1, 'a', 595], [2, 'a', 634]));
+});
+
+test('一括: サンプルCSV（画像の10人分）。人ごとの候補は1人用の画面で同じptを計算した結果と一致する', () => {
+  // 前提: サンプルは見出し1行＋10人で、読めない行が無い
+  assert.deepEqual([parseCsv(REAL).people.length, parseCsv(REAL).errors], [10, []]);
+  const p = loadMove();
+  assert.equal(p.batch(REAL), true);   // submit の既定動作（送信）を止める
+  const r = batchResult(p);
+  assert.deepEqual(r.summary, SUMMARY(10, 0));
+  assert.deepEqual(csvError(p), ['', 'false']);
+  assert.deepEqual(r.people.map(x => [x.name, x.pt]), [
+    ['かぶりこ', '4,605,373'], ['まさや', '4,560,338'], ['ゆふぃー', '4,318,802'], ['たるつ', '3,900,205'],
+    ['きっさ', '3,892,771'], ['スターダスト', '3,877,849'], ['幸せの多重奏', '3,811,082'], ['らんぜん', '3,650,182'],
+    ['ドウガチ(仮)', '3,435,870'], ['タツノスケ', '3,363,601'],
+  ]);
+  // 先頭の1人は値を直書きで固定する（ボーナス0回→5回、各回数の中はトリガー数が0に近い順）
+  assert.deepEqual(r.people[0], {
+    name: 'かぶりこ', pt: '4,605,373', rare: [], note: null, toggle: TOGGLE(0, false, 8),
+    likely: [
+      ['0', '1,707', '5,662', '-3,495'], ['0', '2,341', '5,067', '+480,835'], ['0', '2,975', '4,472', '+965,165'],
+      ['5', '1,799', '5,552', '+71,045'], ['5', '2,433', '4,957', '+555,375'],
+    ],
+  });
+  // 全員を開いてから、1人用の結果と突き合わせる
+  r.people.forEach((_, i) => p.clickResult('rare-person', i));
+  batchResult(p).people.forEach((x, i) => {
+    const pt = Number(x.pt.replace(/,/g, ''));
+    assert.deepEqual({ likely: x.likely, rare: x.rare }, singleRows(pt), x.name);
+    assert.equal(x.toggle[1], 'true', x.name);
+    assert.equal(x.toggle[0], String(i));
+  });
+});
+
+test('一括: 候補なしは警告、主な候補が無い人だけ別枠を最初から開く、別枠0件ならボタンを出さない', () => {
+  const p = loadMove();
+  p.batch('なし,1\n別枠だけ,3000\n両方,57120\n主だけ,15000');
+  assert.deepEqual(batchResult(p).people, [
+    { name: 'なし', pt: '1', likely: [], rare: [], note: 'warn:合う組み合わせがありません', toggle: null },
+    { name: '別枠だけ', pt: '3,000', likely: [], rare: [['1', '0', '0', '0']], note: 'ボーナス0回・5回の候補はありません', toggle: TOGGLE(1, true, 1) },
+    { name: '両方', pt: '57,120', likely: [['0', '96', '0', '+57,120']], rare: [], note: null, toggle: TOGGLE(2, false, 1) },
+    { name: '主だけ', pt: '15,000', likely: [['5', '0', '0', '0']], rare: [], note: null, toggle: null },
+  ]);
+});
+
+test('一括: 別枠のボタンは押した人だけ開閉し、範囲外・数字でない index は何も変えない。再計算で初期状態へ戻る', () => {
+  const p = loadMove();
+  p.batch('a,57120\nb,57120\nc,3000');
+  const toggles = () => batchResult(p).people.map(x => x.toggle[1]);
+  assert.deepEqual(toggles(), ['false', 'false', 'true']);
+  p.clickResult('rare-person', 1);
+  assert.deepEqual(toggles(), ['false', 'true', 'true']);
+  assert.deepEqual(batchResult(p).people[1].rare, [['2', '6', '75', '-9,930']]);
+  p.clickResult('rare-person', 2);
+  assert.deepEqual(toggles(), ['false', 'true', 'false']);
+  for (const i of [3, -1, 'abc', '']) {
+    p.clickResult('rare-person', i);
+    assert.deepEqual(toggles(), ['false', 'true', 'false'], `index=${JSON.stringify(i)}`);
+  }
+  // 1人用の別枠ボタンの action は一括の状態を変えない
+  p.clickResult('rare');
+  assert.deepEqual(toggles(), ['false', 'true', 'false']);
+  p.batch('a,57120\nb,57120\nc,3000');
+  assert.deepEqual(toggles(), ['false', 'false', 'true']);
+});
+
+test('一括: 読めない行は入力欄の直下に行番号つきで並べ、読めた行は計算する。21文字以上の行は20文字で切る', () => {
+  const p = loadMove();
+  const k20 = 'あいうえおかきくけこさしすせそたちつてと';
+  assert.equal(k20.length, 20);
+  // 3行目は24文字、4行目は21文字（19文字＋「,x」）
+  p.batch(`a,595\nかぶりこ 4605373\n${k20},abc\n${k20.slice(0, 19)},x`);
+  assert.deepEqual(csvError(p), [[
+    `2行目「かぶりこ 4605373」: ${MSG_NO_SEP}`,
+    `3行目「${k20}…」: ${MSG_NOT_INT}`,
+    `4行目「${k20.slice(0, 19)},…」: ${MSG_NOT_INT}`,
+  ].join('\n'), 'true']);
+  // 20文字ちょうど（18文字＋「,x」）は切らない
+  p.batch(`a,595\n${k20.slice(0, 18)},x`);
+  assert.deepEqual(csvError(p), [`2行目「${k20.slice(0, 18)},x」: ${MSG_NOT_INT}`, 'true']);
+  p.batch('a,595\nb,abc');
+  assert.deepEqual(batchResult(p).summary, SUMMARY(1, 1));
+  assert.deepEqual(batchResult(p).people.map(x => x.name), ['a']);
+});
+
+test('一括: 全行が読めないときは結果欄を空にする（前の結果を残さない）', () => {
+  const p = loadMove();
+  p.batch('a,595');
+  assert.deepEqual(batchResult(p).summary, SUMMARY(1, 0));
+  p.batch('a\nb,abc');
+  assert.deepEqual([p.el('result').innerHTML, csvError(p)],
+    ['', [`1行目「a」: ${MSG_NO_SEP}\n2行目「b,abc」: ${MSG_NOT_INT}`, 'true']]);
+});
+
+test('一括: 空・空行だけ・見出しだけは「1行以上入力」を出し、結果欄を空にする', () => {
+  for (const text of ['', ' \n\r\n\t', '名前,現在pt']) {
+    const p = loadMove();
+    p.batch('a,595');
+    p.batch(text);
+    assert.deepEqual([p.el('result').innerHTML, csvError(p), p.appState.batch], ['', [MSG_EMPTY, 'true'], null], JSON.stringify(text));
+  }
+});
+
+test('一括: 人数は上限50人まで。51人は誰も計算しない。読めない行は人数に数えない', () => {
+  const lines = n => Array.from({ length: n }, (_, i) => `p${i},595`);
+  const p = loadMove();
+  assert.equal(p.BATCH_MAX, 50);
+  p.batch(lines(50).join('\n'));
+  assert.deepEqual([batchResult(p).summary, csvError(p)], [SUMMARY(50, 0), ['', 'false']]);
+  p.batch([...lines(50), 'bad'].join('\n'));
+  assert.deepEqual(batchResult(p).summary, SUMMARY(50, 1));
+  p.batch(lines(51).join('\n'));
+  assert.deepEqual([p.el('result').innerHTML, csvError(p), p.appState.batch],
+    ['', ['一度に計算できるのは50人までです（51人分あります）', 'true'], null]);
+});
+
+test('一括: 名前の HTML 特殊文字はエスケープして表示する', () => {
+  const p = loadMove();
+  p.batch(`<img src=x onerror=alert(1)>,595\n"a'&b,634`);
+  assert.deepEqual(batchResult(p).people.map(x => x.name), ['&lt;img src=x onerror=alert(1)&gt;', '&quot;a&#39;&amp;b']);
+  assert.equal(p.el('result').innerHTML.includes('<img'), false);
+});
+
+test('切り替え: 計算した側の入力欄にだけエラーを出し、もう一方のエラーは消す', () => {
+  const p = loadMove();
+  // 1行目に数字が無いと見出しとして読み飛ばすため、読めない行は2行目に置く
+  p.batch('b,595\na,abc');
+  assert.deepEqual([csvError(p), ptError(p)], [[`2行目「a,abc」: ${MSG_NOT_INT}`, 'true'], ['', 'false']]);
+  p.calc(100000000);
+  assert.deepEqual([csvError(p), ptError(p)], [['', 'false'], ['ポイントは99,999,999以下にしてください', 'true']]);
+  p.batch('b,595');
+  assert.deepEqual([csvError(p), ptError(p)], [['', 'false'], ['', 'false']]);
+  assert.deepEqual(batchResult(p).people.map(x => x.name), ['b']);
+  // 1人用へ戻すと1人用の結果を出す（一括の枠は残さない）
+  p.calc(595);
+  const html = p.el('result').innerHTML;
+  assert.deepEqual([html.includes('<section class="person">'), parseResult(html).summary[0]], [false, ['指定のポイント', '595']]);
+});
+
+test('フォーム: textarea と submit ボタンを一括用の form に入れ、ヒント文は上限の定数から組む', () => {
+  const p = loadMove();
+  const inner = p.el('batch-form').innerHTML;
+  assert.equal(inner.includes('<textarea id="inp-csv"'), true);
+  assert.equal(inner.includes('<button type="submit" class="btn-calc" id="btn-batch">まとめて計算する</button>'), true);
+  assert.deepEqual([p.el('inp-csv').listeners, p.el('btn-batch').listeners], [{}, {}]);
+  assert.equal(p.el('inp-csv-hint').textContent, p.CSV_HINT);
+  assert.equal(p.CSV_HINT.includes(`一度に${p.BATCH_MAX}人まで計算できます。`), true);
+  // ヒントとエラーを読み上げの説明として textarea に結び付ける
+  assert.equal(p.el('inp-csv').getAttribute('aria-describedby'), 'inp-csv-hint inp-csv-error');
+  // 読めない行の一覧は改行で並べるため、エラー欄は改行を表示に反映する
+  assert.equal(HTML.includes('#inp-csv-error { white-space: pre-line; }'), true);
+});

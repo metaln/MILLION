@@ -327,9 +327,9 @@ test('HTML: baseline-ui の禁止事項（100vh・letter-spacing・transition/an
 
 test('HTML: baseline-ui の書式（見出しは balance・本文は pretty・数値は tabular-nums）', () => {
   assert.equal(HTML.includes('h1, .group-title { text-wrap: balance; }'), true);
-  assert.equal(HTML.includes('.spec-body li, .placeholder, .field-error { text-wrap: pretty; }'), true);
+  assert.equal(HTML.includes('.spec-body li, .placeholder, .field-error, .field-hint { text-wrap: pretty; }'), true);
   const rule = sel => (HTML.match(new RegExp(`\\n${sel.replace(/[.[\]=]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1] || '';
-  for (const sel of ['.field input[type=number]', '.sval', '.num'])
+  for (const sel of ['.field input[type=number]', '.field textarea', '.sval', '.num'])
     assert.equal(rule(sel).includes('font-variant-numeric: tabular-nums;'), true, sel);
   assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #767676; font-variant-numeric: tabular-nums; }'), true);
 });
@@ -339,7 +339,7 @@ test('HTML: CSP meta・インラインイベントハンドラ無し・入力欄
   assert.ok(m, 'CSP meta が無い');
   assert.equal(m[1], "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'");
   assert.deepEqual(HTML.match(/<[^>]*\son[a-z]+\s*=/gi), null);
-  const inputIds = [...HTML.matchAll(/<input[^>]*\sid="([^"]+)"/g)].map(x => x[1]);
-  assert.deepEqual(inputIds, ['inp-pt']);
+  const inputIds = [...HTML.matchAll(/<(?:input|textarea)[^>]*\sid="([^"]+)"/g)].map(x => x[1]);
+  assert.deepEqual(inputIds, ['inp-pt', 'inp-csv']);
   assert.deepEqual([...HTML.matchAll(/<label for="([^"]+)"/g)].map(x => x[1]), inputIds);
 });
