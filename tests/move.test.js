@@ -422,7 +422,36 @@ test('HTML: baseline-ui の書式（見出しは balance・本文は pretty・�
   const rule = sel => (HTML.match(new RegExp(`\\n${sel.replace(/[.[\]=]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1] || '';
   for (const sel of ['.field input[type=number]', '.field textarea', '.sval', '.num'])
     assert.equal(rule(sel).includes('font-variant-numeric: tabular-nums;'), true, sel);
-  assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #767676; font-variant-numeric: tabular-nums; }'), true);
+  assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #6b6b6b; font-variant-numeric: tabular-nums; }'), true);
+});
+
+// WCAG 2.x の相対輝度とコントラスト比（#rrggbb）
+const luminance = hex => {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+// CSS の1規則（行頭のセレクタ〜}）から指定プロパティの #rrggbb を取る。規則が無ければ null
+const cssColor = (sel, prop) => {
+  const body = (HTML.match(new RegExp(`\\n${sel.replace(/[.[\]=]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1];
+  const m = body && body.match(new RegExp(`(?:^|[;\\s])${prop}: (?:1px solid )?(#[0-9a-fA-F]{6});`));
+  return m ? m[1] : null;
+};
+
+test('HTML: 補助テキスト（初期案内・件数・該当なし）の文字色は body 背景に対し 4.5:1 以上', () => {
+  assert.equal(cssColor('body', 'background'), '#f7f7f7');
+  for (const sel of ['.placeholder', '.group-count', '.group-empty']) {
+    const c = cssColor(sel, 'color');
+    assert.equal(typeof c, 'string', sel);
+    assert.equal(contrast(c, '#f7f7f7') >= 4.5, true, `${sel} ${c} ${contrast(c, '#f7f7f7').toFixed(2)}`);
+  }
+  // 対照: 変更前の #767676 は届かない（約 4.24:1）。計算式は白黒で 21:1
+  assert.equal(contrast('#767676', '#f7f7f7') < 4.5, true);
+  assert.equal(contrast('#000000', '#ffffff'), 21);
 });
 
 test('HTML: 入力欄のフォーカスは枠線の色でなくアウトラインで示す（エラーの赤枠中も見える）', () => {
