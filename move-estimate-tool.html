@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ミリシタ 動き検討ツール</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+  background: #f7f7f7;
+  color: #444;
+  padding: 28px 24px;
+  min-height: 100vh;
+}
+h1 {
+  font-size: 19px;
+  font-weight: 500;
+  color: #4D4D4D;
+  margin-bottom: 20px;
+  letter-spacing: 0.04em;
+}
+.layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  max-width: 1100px;
+}
+/* ─── Left panel ─── */
+.left {
+  flex: 0 0 300px;
+  min-width: 0;
+}
+.input-card {
+  border: 1px solid #b9c7fb;
+  border-radius: 6px;
+  padding: 18px 16px;
+  background: #fff;
+}
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: #4D4D4D;
+  margin-bottom: 5px;
+}
+.field input[type=number] {
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: #1a1a1a;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.field input[type=number]::-webkit-inner-spin-button,
+.field input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+.field input[type=number]:focus { border-color: #3460FB; }
+.btn-calc {
+  width: 100%;
+  padding: 9px;
+  background: #3460FB;
+  border: 1px solid #3460FB;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 2px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-calc:hover { background: #0017C1; border-color: #0017C1; }
+.spec-toggle {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 12px;
+  color: #3460FB;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.spec-toggle:hover { color: #0017C1; }
+.spec-body {
+  display: none;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #444;
+  line-height: 1.7;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 10px;
+}
+.spec-body.open { display: block; }
+.spec-body li { margin-left: 12px; margin-bottom: 2px; }
+
+/* ─── Right panel ─── */
+.right {
+  flex: 1;
+  min-width: 0;
+}
+.placeholder {
+  color: #767676;
+  font-size: 13px;
+  padding: 32px 0;
+  text-align: center;
+}
+.warn { color: #D42020; font-weight: 600; }
+
+/* ─── Summary ─── */
+.summary {
+  margin-bottom: 18px;
+  background: #f5f8ff;
+  border: 1px solid #b9c7fb;
+  border-radius: 5px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.srow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  color: #4D4D4D;
+}
+.srow + .srow { border-top: 1px solid #d6e0fb; }
+.sval { color: #1a1a1a; font-variant-numeric: tabular-nums; }
+
+/* ─── Candidate groups ─── */
+.group { margin-bottom: 18px; }
+.group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4D4D4D;
+  margin-bottom: 8px;
+}
+.group-count { font-size: 12px; font-weight: 400; color: #767676; }
+.group-empty { font-size: 13px; color: #767676; padding: 2px 0; }
+.result-row {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border: 1px solid #eee;
+  border-radius: 5px;
+  background: #fff;
+  margin-bottom: 6px;
+}
+.cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: #4D4D4D;
+}
+.cell-trig { justify-content: flex-end; }
+.stage-badge {
+  border: 1px solid #3460FB;
+  border-radius: 3px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: #0055AD;
+  flex-shrink: 0;
+}
+.num { font-size: 14px; color: #1a1a1a; font-variant-numeric: tabular-nums; }
+.more-btn { margin-top: 4px; }
+.rare-toggle { margin: 0 0 14px; }
+
+@media (max-width: 620px) {
+  .layout { flex-direction: column; }
+  .left { flex: none; width: 100%; }
+  .result-row { flex-wrap: wrap; row-gap: 8px; }
+  .cell { flex: 1 1 45%; }
+  .cell-trig { flex-basis: 100%; justify-content: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<h1>ミリシタ 動き検討ツール</h1>
+
+<div class="layout">
+  <div class="left">
+    <div class="input-card">
+      <div class="field">
+        <label for="inp-pt">指定のポイント</label>
+        <input type="number" id="inp-pt" value="0" min="0" inputmode="numeric">
+      </div>
+      <button class="btn-calc" id="btn-calc">計算する</button>
+      <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
+      <ul class="spec-body" id="spec-body"></ul>
+    </div>
+  </div>
+
+  <div class="right">
+    <div id="result" aria-live="polite">
+      <div class="placeholder">「計算する」を押すと結果が表示されます</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 動きの定義（ポイント・トリガー数の正本。仕様の文言もここから組む）──
+const CHARGE  = { name: '貯め',     point: 595,  trigger: 595 };
+const RELEASE = { name: '吐き',     point: 634,  trigger: -180 };
+const BONUS   = { name: 'ボーナス', point: 3000, max: 5 };
+const TRIGGER_MIN  = -10000;                 // トリガー数はこれを下回らない
+const LIKELY_BONUS = [0, BONUS.max];         // ボーナス回数はほとんどがこのどちらか
+const RARE_BONUS   = Array.from({ length: BONUS.max + 1 }, (_, c) => c).filter(c => !LIKELY_BONUS.includes(c));
+const MAX_PT       = 999999999;              // 指定ポイントの入力上限
+const SHOW_LIMIT   = 10;                     // 1グループで最初に表示する候補数
+
+const bonusLabel = cs => cs.length > 1 && cs.at(-1) - cs[0] === cs.length - 1
+  ? `${cs[0]}〜${cs.at(-1)}回`
+  : cs.map(c => `${c}回`).join('・');
+const LIKELY_LABEL = bonusLabel(LIKELY_BONUS);   // 0回・5回
+const RARE_LABEL   = bonusLabel(RARE_BONUS);     // 1〜4回
+
+const SPEC_ITEMS = [
+  `${CHARGE.name}: ${CHARGE.point.toLocaleString()}ptとトリガー${CHARGE.trigger.toLocaleString()}個を得ます。`,
+  `${RELEASE.name}: トリガー${(-RELEASE.trigger).toLocaleString()}個を使い、${RELEASE.point.toLocaleString()}ptを得ます。`,
+  `${BONUS.name}: ${BONUS.point.toLocaleString()}ptを得ます。使えるのは最大${BONUS.max}回です。`,
+  `トリガー数は0個から数え、最後のトリガー数が${TRIGGER_MIN.toLocaleString()}個を下回る組み合わせは候補から外します。`,
+  `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は別枠に分けます。`,
+  `同じ${BONUS.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
+];
+
+// HTML特殊文字エスケープ（innerHTML描画の防御）
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => n.toLocaleString();
+const signed = n => (n > 0 ? '+' : '') + fmt(n);
+
+// pt = 貯め×595 + 吐き×634 + ボーナス×3000 を満たす回数の組をすべて返す。
+// ボーナス回数と吐き回数を決めると貯め回数が決まるため、その2つを走査する。
+// 最後のトリガー数が下限以上なら、貯めを先に済ませる順序で途中も下限を下回らない。
+// そのため判定は最後のトリガー数だけで行う。
+function solve(pt) {
+  const list = [];
+  for (let c = 0; c <= BONUS.max; c++) {
+    const rest = pt - BONUS.point * c;
+    for (let b = 0; RELEASE.point * b <= rest; b++) {
+      const r = rest - RELEASE.point * b;
+      if (r % CHARGE.point !== 0) continue;
+      const a = r / CHARGE.point;
+      const trigger = CHARGE.trigger * a + RELEASE.trigger * b;
+      if (trigger >= TRIGGER_MIN) list.push({ charge: a, release: b, bonus: c, trigger });
+    }
+  }
+  return list;
+}
+
+// トリガー数が0に近い順。同点の並べ方は決めない。現在の定数では、同じボーナス回数の候補どうしの
+// トリガー数の差が 484,330 の倍数になる。絶対値が等しい2件があれば負の側は −242,165 以下で、下限で除外済み
+const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
+
+const appState = { pt: 0, list: null, error: '', expanded: new Set(), rareOpen: false };
+
+// ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
+function buildViewModel(state) {
+  if (state.error) return { kind: 'error', message: state.error };
+  if (!state.list) return { kind: 'idle' };
+  const toGroup = c => {
+    const all = state.list.filter(x => x.bonus === c).sort(byTrigger);
+    const items = state.expanded.has(c) ? all : all.slice(0, SHOW_LIMIT);
+    return { bonus: c, items, total: all.length, rest: all.length - items.length };
+  };
+  const likely = LIKELY_BONUS.map(toGroup);
+  const rare   = RARE_BONUS.map(toGroup);
+  const count  = gs => gs.reduce((n, g) => n + g.total, 0);
+  const likelyCount = count(likely);
+  const rareCount   = count(rare);
+  if (likelyCount + rareCount === 0) return { kind: 'none' };
+  return { kind: 'list', pt: state.pt, likely, rare, likelyCount, rareCount, rareOpen: state.rareOpen };
+}
+
+function _groupHtml(g) {
+  const head = `<h2 class="group-title">${esc(BONUS.name)} ${g.bonus}回<span class="group-count">${g.total}件</span></h2>`;
+  if (g.total === 0) return `<section class="group">${head}<div class="group-empty">該当なし</div></section>`;
+  const rows = g.items.map(x => `<div class="result-row">
+      <span class="cell"><span class="stage-badge">${esc(CHARGE.name)}</span><span><span class="num">${fmt(x.charge)}</span>回</span></span>
+      <span class="cell"><span class="stage-badge">${esc(RELEASE.name)}</span><span><span class="num">${fmt(x.release)}</span>回</span></span>
+      <span class="cell cell-trig">トリガー数<span class="num">${signed(x.trigger)}</span></span>
+    </div>`).join('');
+  const more = g.rest > 0
+    ? `<button type="button" class="spec-toggle more-btn" data-action="more" data-bonus="${g.bonus}">残り${g.rest}件を表示</button>`
+    : '';
+  return `<section class="group">${head}${rows}${more}</section>`;
+}
+
+function _resultHtml(vm) {
+  if (vm.kind === 'idle')  return '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
+  if (vm.kind === 'error') return `<div class="placeholder warn">${esc(vm.message)}</div>`;
+  if (vm.kind === 'none')  return '<div class="placeholder warn">指定のポイントに合う組み合わせがありません</div>';
+
+  const summary = `<div class="summary">
+    <div class="srow"><span>指定のポイント</span><span class="sval">${fmt(vm.pt)}</span></div>
+    <div class="srow"><span>${esc(BONUS.name)}${LIKELY_LABEL}の候補</span><span class="sval">${vm.likelyCount}件</span></div>
+    <div class="srow"><span>${esc(BONUS.name)}${RARE_LABEL}の候補</span><span class="sval">${vm.rareCount}件</span></div>
+  </div>`;
+  const likely = vm.likely.map(_groupHtml).join('');
+  if (vm.rareCount === 0) return summary + likely;
+  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare" aria-expanded="${vm.rareOpen}">◇ ${esc(BONUS.name)}${RARE_LABEL}の候補を${vm.rareOpen ? '隠す' : '表示'}</button>`;
+  const rare = vm.rareOpen ? vm.rare.map(_groupHtml).join('') : '';
+  return summary + likely + toggle + rare;
+}
+
+function renderAll() {
+  const vm = buildViewModel(appState);
+  document.getElementById('result').innerHTML = _resultHtml(vm);
+  return vm;
+}
+
+function doCalc() {
+  // parseInt は "1e3" を 1 と読むため Number で読む。非有限（Infinity・非数）は0
+  const toInt = v => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; };
+  appState.pt       = toInt(document.getElementById('inp-pt').value);
+  appState.expanded = new Set();
+  if (appState.pt > MAX_PT) {
+    appState.list  = null;
+    appState.error = `ポイントは${MAX_PT.toLocaleString()}以下にしてください`;
+    return renderAll();
+  }
+  appState.error    = '';
+  appState.list     = solve(appState.pt);
+  // 主な候補が無いときだけ、別枠の候補を最初から開く
+  appState.rareOpen = !appState.list.some(x => LIKELY_BONUS.includes(x.bonus));
+  return renderAll();
+}
+
+document.getElementById('spec-body').innerHTML = SPEC_ITEMS.map(s => `<li>${esc(s)}</li>`).join('');
+
+document.getElementById('result').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'more') appState.expanded.add(Number(btn.dataset.bonus));
+  if (btn.dataset.action === 'rare') appState.rareOpen = !appState.rareOpen;
+  renderAll();
+});
+
+document.getElementById('btn-calc').addEventListener('click', doCalc);
+document.getElementById('inp-pt').addEventListener('keydown', e => { if (e.key === 'Enter') doCalc(); });
+document.getElementById('spec-toggle').addEventListener('click', () => {
+  const body = document.getElementById('spec-body');
+  const btn  = document.getElementById('spec-toggle');
+  body.classList.toggle('open');
+  btn.setAttribute('aria-expanded', body.classList.contains('open') ? 'true' : 'false');
+});
+</script>
+</body>
+</html>

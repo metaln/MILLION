@@ -1,10 +1,11 @@
 # ミリシタ PSTポイント調整ツール（Tale）
 
 目標ポイントに「ぴったり」届く曲の組み合わせとプレイ順序を計算する、1ファイルだけのWebツール。
+同じ形式で、指定したポイントから貯め・吐き・ボーナスの回数の組み合わせを洗い出す動き検討ツールも置いている。
 
 ## 使い方
 
-`pst-point-tool.html` をブラウザで開く。インストールやサーバーは要らない。
+`pst-point-tool.html`（ポイント調整）か `move-estimate-tool.html`（動き検討）をブラウザで開く。インストールやサーバーは要らない。
 
 ## ファイル構成
 
@@ -12,6 +13,7 @@
 |---|---|
 | `pst-point-tool.html` | ツール本体（画面・計算ロジックを1ファイルに収める） |
 | `pst-point-table.md` | 曲ごとのポイントと進捗の表。ツール内の曲データはこの表と一致させる |
+| `move-estimate-tool.html` | 動き検討ツール本体。動きごとのポイント・トリガー数は `<script>` 冒頭の定数が正本 |
 | `tests/` | 自動テスト |
 | `改修予定メモ.md` / `改修済メモ.md` | 改修の予定と記録 |
 
@@ -27,5 +29,6 @@ node --test tests/*.test.js
 - `ℹ todo` は、既知の不具合を示すテストの件数。不具合は `改修予定メモ.md` に登録してあり、直したらテストの `todo` 指定を外す
 - `tests/` をディレクトリのまま渡す書き方（`node --test tests/`）は Windows で失敗するため、上の書き方で実行する
 
-テストは `pst-point-tool.html` の `<script>` を Node.js で読み込み、画面の部品を簡易的に再現して動かす（`tests/helpers/load-pst.js`）。
+テストは各HTMLの `<script>` を Node.js で読み込み、画面の部品を簡易的に再現して動かす（`tests/helpers/load-pst.js` / `tests/helpers/load-move.js`）。
+動き検討ツールのテストは `tests/move.test.js`。
 ブラウザでの見た目（色・レイアウト）は検査しない。

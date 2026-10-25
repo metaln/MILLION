@@ -145,4 +145,4 @@ function parseOrder(html) {
     .map(m => ({ cls: m[1] || '', text: m[2].replace(/<[^>]+>/g, '') }));
 }
 
-module.exports = { loadPst, parseRows, parseOrder, HTML, HTML_PATH };
+module.exports = { loadPst, parseRows, parseOrder, HTML, HTML_PATH, extractScript, buildDocument };
