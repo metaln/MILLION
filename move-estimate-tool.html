@@ -265,7 +265,7 @@ h1, .group-title { text-wrap: balance; }
       <div class="field">
         <label for="inp-csv">CSVでまとめて計算</label>
         <p class="field-hint" id="inp-csv-hint"></p>
-        <textarea id="inp-csv" rows="8" spellcheck="false" aria-describedby="inp-csv-hint inp-csv-error" placeholder="かぶりこ,4605373&#10;まさや,4,560,338pt"></textarea>
+        <textarea id="inp-csv" rows="8" spellcheck="false" aria-describedby="inp-csv-hint inp-csv-error" placeholder="プレイヤーA,4605373&#10;プレイヤーB,4,560,338pt"></textarea>
         <p class="field-error" id="inp-csv-error" aria-live="polite"></p>
       </div>
       <button type="submit" class="btn-calc" id="btn-batch">まとめて計算する</button>
@@ -381,7 +381,7 @@ function parsePt(text) {
 
 // 貼り付けたCSVを人ごとの { line, name, pt } と、読めなかった行 { line, raw, reason } に分ける。
 // 名前は最初の区切りより前（名前にカンマを含む行は正しく読めない）。ptは parsePt で読む。
-// 区切りがカンマで、名前が数字で終わり pt が3桁区切りで始まる行（かぶりこ 4,605,373）は、境目が読めないためエラー
+// 区切りがカンマで、名前が数字で終わり pt が3桁区切りで始まる行（プレイヤーA 4,605,373）は、境目が読めないためエラー
 function parseCsv(text) {
   const people = [], errors = [];
   let first = true;

@@ -17,7 +17,7 @@ const { loadMove, parseResult, viewButtons, HTML } = require('./helpers/load-mov
 const mv = loadMove();
 const { parseCsv } = mv;
 
-// 画像（ランキング画面）から写した10人分のサンプル。1行目は見出し
+// 架空の10人分のサンプル。1行目は見出し
 const REAL = fs.readFileSync(path.join(__dirname, '..', 'move-batch-sample.csv'), 'utf8');
 
 // _batchHtml の出力を、サマリと人ごとの枠に分解。行は別枠ボタンの前（主な候補）と後（別枠）に分ける
@@ -68,12 +68,12 @@ function singleRows(pt) {
 
 test('parseCsv: 区切りはカンマ・タブ・全角カンマ。ptの桁区切り・末尾pt（大文字含む）・全角・空白を読む', () => {
   const text = [
-    'かぶりこ,4,605,373pt', 'まさや\t4560338', 'ゆふぃー，4318802', 'たるつ,３，９００，２０５ｐｔ',
-    'きっさ , 3 892 771 PT', 'ゼロ,0', '上限,99,999,999',
+    'プレイヤーA,4,605,373pt', 'プレイヤーB\t4560338', 'プレイヤーC，4318802', 'プレイヤーD,３，９００，２０５ｐｔ',
+    'プレイヤーE , 3 892 771 PT', 'ゼロ,0', '上限,99,999,999',
   ].join('\n');
   assert.deepEqual(parseCsv(text), {
-    people: people([1, 'かぶりこ', 4605373], [2, 'まさや', 4560338], [3, 'ゆふぃー', 4318802], [4, 'たるつ', 3900205],
-      [5, 'きっさ', 3892771], [6, 'ゼロ', 0], [7, '上限', 99999999]),
+    people: people([1, 'プレイヤーA', 4605373], [2, 'プレイヤーB', 4560338], [3, 'プレイヤーC', 4318802], [4, 'プレイヤーD', 3900205],
+      [5, 'プレイヤーE', 3892771], [6, 'ゼロ', 0], [7, '上限', 99999999]),
     errors: [],
   });
 });
@@ -106,20 +106,20 @@ test('parseCsv: 1行目を見出しとするのは pt 側に「pt」か「ポイ
     assert.deepEqual(parseCsv(`${head}\na,595`), { people: people([2, 'a', 595]), errors: [] }, head);
   // 見出し語の無い1行目（データ行の誤記）は黙って消さず、2行目以降と同じ理由でエラーにする
   const cases = [
-    ['かぶりこ,', MSG_NOT_INT], ['かぶりこ,abc', MSG_NOT_INT], ['かぶりこ,O', MSG_NOT_INT],
-    ['かぶりこ,不明', MSG_NOT_INT], ['名前,現在', MSG_NOT_INT], [',abc', MSG_NO_NAME],
+    ['プレイヤーA,', MSG_NOT_INT], ['プレイヤーA,abc', MSG_NOT_INT], ['プレイヤーA,O', MSG_NOT_INT],
+    ['プレイヤーA,不明', MSG_NOT_INT], ['名前,現在', MSG_NOT_INT], [',abc', MSG_NO_NAME],
   ];
   for (const [first, reason] of cases)
     assert.deepEqual(parseCsv(`${first}\na,595`), { people: people([2, 'a', 595]), errors: [{ line: 1, raw: first, reason }] }, first);
 });
 
 test('parseCsv: 読めない行（区切りなし・名前なし・整数でない・上限超え）は行番号と理由を返し、他の行は読む', () => {
-  const bad = ['a,1', 'かぶりこ 4605373', ',595', ' \t595', 'b,', 'c,abc', 'd,-5', 'e,1.5', 'f,1e3', 'g,595pts', 'h,pt',
+  const bad = ['a,1', 'プレイヤーA 4605373', ',595', ' \t595', 'b,', 'c,abc', 'd,-5', 'e,1.5', 'f,1e3', 'g,595pts', 'h,pt',
     'i,100,000,000', 'j,99999999'];
   assert.deepEqual(parseCsv(bad.join('\n')), {
     people: people([1, 'a', 1], [13, 'j', 99999999]),
     errors: [
-      { line: 2, raw: 'かぶりこ 4605373', reason: MSG_NO_SEP },
+      { line: 2, raw: 'プレイヤーA 4605373', reason: MSG_NO_SEP },
       { line: 3, raw: ',595', reason: MSG_NO_NAME },
       // 前後の空白（タブを含む）を除いた結果、区切りが無くなる
       { line: 4, raw: '595', reason: MSG_NO_SEP },
@@ -136,7 +136,7 @@ test('parseCsv: 読めない行（区切りなし・名前なし・整数でな�
 });
 
 test('parseCsv: pt の桁区切りは3桁ごとのカンマか空白だけ。3列目以降の数字を連結しない', () => {
-  const bad = ['a,460537,3', 'a,4,6053,73', 'a,3,892 771', 'a,1000,000', 'a, 1 2', 'a,,595', 'かぶりこ\t4605373\t5', 'a\tb\t5', 'a,1\t2'];
+  const bad = ['a,460537,3', 'a,4,6053,73', 'a,3,892 771', 'a,1000,000', 'a, 1 2', 'a,,595', 'プレイヤーA\t4605373\t5', 'a\tb\t5', 'a,1\t2'];
   assert.deepEqual(parseCsv(['z,1', ...bad].join('\n')), {
     people: people([1, 'z', 1]),
     errors: [
@@ -148,7 +148,7 @@ test('parseCsv: pt の桁区切りは3桁ごとのカンマか空白だけ。3�
       { line: 6, raw: 'a, 1 2', reason: MSG_GROUP },
       { line: 7, raw: 'a,,595', reason: MSG_GROUP },
       // タブが pt 側に残る行は列が多い（数字でなくても同じ）
-      { line: 8, raw: 'かぶりこ\t4605373\t5', reason: MSG_COLS },
+      { line: 8, raw: 'プレイヤーA\t4605373\t5', reason: MSG_COLS },
       { line: 9, raw: 'a\tb\t5', reason: MSG_COLS },
       { line: 10, raw: 'a,1\t2', reason: MSG_COLS },
     ],
@@ -159,14 +159,14 @@ test('parseCsv: pt の桁区切りは3桁ごとのカンマか空白だけ。3�
 });
 
 test('parseCsv: カンマ区切りで名前が数字で終わり pt が3桁区切りで始まる行は、名前と pt の境目が読めないためエラー', () => {
-  const bad = ['かぶりこ 4,605,373', '4,605,373pt', 'かぶりこ ４，６０５，３７３', '1,595', 'かぶりこ 12,345', 'かぶりこ 4,605 373', 'x 123,456'];
+  const bad = ['プレイヤーA 4,605,373', '4,605,373pt', 'プレイヤーA ４，６０５，３７３', '1,595', 'プレイヤーA 12,345', 'プレイヤーA 4,605 373', 'x 123,456'];
   assert.deepEqual(parseCsv(['z,1', ...bad].join('\n')), {
     people: people([1, 'z', 1]),
     errors: bad.map((raw, i) => ({ line: i + 2, raw, reason: MSG_AMBIG })),
   });
   // 対照: 名前の末尾の数字が空白で離れていない・4桁以上・pt が3桁区切りで始まらない・タブ区切りは、そのまま読む
-  assert.deepEqual(parseCsv('p1,595\nかぶりこ 1234,567\nかぶりこ 4,4605373\nかぶりこ 4\t605\nかぶりこ 4,60').people,
-    people([1, 'p1', 595], [2, 'かぶりこ 1234', 567], [3, 'かぶりこ 4', 4605373], [4, 'かぶりこ 4', 605], [5, 'かぶりこ 4', 60]));
+  assert.deepEqual(parseCsv('p1,595\nプレイヤーA 1234,567\nプレイヤーA 4,4605373\nプレイヤーA 4\t605\nプレイヤーA 4,60').people,
+    people([1, 'p1', 595], [2, 'プレイヤーA 1234', 567], [3, 'プレイヤーA 4', 4605373], [4, 'プレイヤーA 4', 605], [5, 'プレイヤーA 4', 60]));
 });
 
 test('parseCsv: 空・空行だけは0件。同じ名前は別の人として両方読む', () => {
@@ -174,7 +174,7 @@ test('parseCsv: 空・空行だけは0件。同じ名前は別の人として両
   assert.deepEqual(parseCsv('a,595\na,634').people, people([1, 'a', 595], [2, 'a', 634]));
 });
 
-test('一括: サンプルCSV（画像の10人分）。人ごとの候補は1人用の画面で同じptを計算した結果と一致する', () => {
+test('一括: サンプルCSV（架空の10人分）。人ごとの候補は1人用の画面で同じptを計算した結果と一致する', () => {
   // 前提: サンプルは見出し1行＋10人で、読めない行が無い
   assert.deepEqual([parseCsv(REAL).people.length, parseCsv(REAL).errors], [10, []]);
   const p = loadMove();
@@ -183,14 +183,14 @@ test('一括: サンプルCSV（画像の10人分）。人ごとの候補は1人
   assert.deepEqual(r.summary, SUMMARY(10, 0));
   assert.deepEqual(csvError(p), ['', 'false']);
   assert.deepEqual(r.people.map(x => [x.name, x.pt]), [
-    ['かぶりこ', '4,605,373'], ['まさや', '4,560,338'], ['ゆふぃー', '4,318,802'], ['たるつ', '3,900,205'],
-    ['きっさ', '3,892,771'], ['スターダスト', '3,877,849'], ['幸せの多重奏', '3,811,082'], ['らんぜん', '3,650,182'],
-    ['ドウガチ(仮)', '3,435,870'], ['タツノスケ', '3,363,601'],
+    ['プレイヤーA', '4,605,373'], ['プレイヤーB', '4,560,338'], ['プレイヤーC', '4,318,802'], ['プレイヤーD', '3,900,205'],
+    ['プレイヤーE', '3,892,771'], ['プレイヤーF', '3,877,849'], ['プレイヤーG', '3,811,082'], ['プレイヤーH', '3,650,182'],
+    ['プレイヤーI(仮)', '3,435,870'], ['プレイヤーJ', '3,363,601'],
   ]);
   // 先頭の1人は値を直書きで固定する（ボーナス0回→5回、各回数の中はトリガー数が0に近い順）。
   // 吐き4桁かつトリガー数50万以上の2件（+965,165・+555,375）はその他の候補へ移る
   assert.deepEqual(r.people[0], {
-    name: 'かぶりこ', pt: '4,605,373', rare: [], note: null, toggle: TOGGLE(0, false, 10),
+    name: 'プレイヤーA', pt: '4,605,373', rare: [], note: null, toggle: TOGGLE(0, false, 10),
     likely: [['0', '1,707', '5,662', '-3,495'], ['0', '2,341', '5,067', '+480,835'], ['5', '1,799', '5,552', '+71,045']],
   });
   p.clickResult('rare-person', 0);
@@ -263,7 +263,7 @@ test('一括: 人ごとの別枠ボタンを押したら、描画し直した後
 
 test('一括: 0回・5回の切り替えは全員の主な候補・その他の候補に効き、再計算しても保つ。候補なしの警告は切り替えによらない', () => {
   const p = loadMove();
-  p.batch('かぶりこ,4605373\n主だけ,15000\nなし,1');
+  p.batch('プレイヤーA,4605373\n主だけ,15000\nなし,1');
   assert.deepEqual(viewButtons(p.el('result').innerHTML), [['all', 'true', '両方'], ['0', 'false', '0回'], ['5', 'false', '5回']]);
   p.clickView('0');
   p.clickResult('rare-person', 0);
@@ -287,9 +287,9 @@ test('一括: 読めない行は入力欄の直下に行番号つきで並べ、
   const k20 = 'あいうえおかきくけこさしすせそたちつてと';
   assert.equal(k20.length, 20);
   // 3行目は24文字、4行目は21文字（19文字＋「,x」）
-  p.batch(`a,595\nかぶりこ 4605373\n${k20},abc\n${k20.slice(0, 19)},x`);
+  p.batch(`a,595\nプレイヤーA 4605373\n${k20},abc\n${k20.slice(0, 19)},x`);
   assert.deepEqual(csvError(p), [[
-    `2行目「かぶりこ 4605373」: ${MSG_NO_SEP}`,
+    `2行目「プレイヤーA 4605373」: ${MSG_NO_SEP}`,
     `3行目「${k20}…」: ${MSG_NOT_INT}`,
     `4行目「${k20.slice(0, 19)},…」: ${MSG_NOT_INT}`,
   ].join('\n'), 'true']);
