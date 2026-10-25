@@ -295,6 +295,24 @@ test('一括: 人数は上限50人まで。51人は誰も計算しない。読�
     ['', ['一度に計算できるのは50人までです（51人分あります）', 'true'], null]);
 });
 
+test('一括: 行エラーと入力全体のエラーは状態を分ける。読めなかった行は行エラーだけを数え、エラー欄は全体→行の順に並べる', () => {
+  const p = loadMove();
+  p.batch('a,595\nb,abc');
+  assert.deepEqual([p.appState.batchRowErrors, p.appState.batchError], [[{ line: 2, raw: 'b,abc', reason: MSG_NOT_INT }], '']);
+  p.batch('');
+  assert.deepEqual([p.appState.batchRowErrors, p.appState.batchError], [[], MSG_EMPTY]);
+  // 人がいて全体のエラーもある状態（今の操作経路では起きない）でも、全体のエラーは読めなかった行に数えない
+  const state = {
+    mode: 'batch', bonusView: 'all', batch: [{ line: 1, name: 'a', pt: 595, list: p.solve(595), rareOpen: false }],
+    batchRowErrors: [{ line: 2, raw: 'b,abc', reason: MSG_NOT_INT }], batchError: '全体の警告',
+  };
+  const vm = p.buildBatchViewModel(state);
+  assert.deepEqual([vm.errors, vm.message], [[`2行目「b,abc」: ${MSG_NOT_INT}`], '全体の警告']);
+  assert.deepEqual(parseBatch(p._resultHtml(vm)).summary, SUMMARY(1, 1));
+  p._renderFieldError(vm);
+  assert.deepEqual(csvError(p), [`全体の警告\n2行目「b,abc」: ${MSG_NOT_INT}`, 'true']);
+});
+
 test('一括: 名前の HTML 特殊文字はエスケープして表示する', () => {
   const p = loadMove();
   p.batch(`<img src=x onerror=alert(1)>,595\n"a'&b,634`);

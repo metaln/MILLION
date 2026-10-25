@@ -386,16 +386,21 @@ function parseCsv(text) {
 
 const shorten = s => (s.length > 20 ? `${s.slice(0, 20)}…` : s);
 
-const appState = { pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchErrors: [], bonusView: 'all' };
+// CSV一括のエラーは、読めなかった行（batchRowErrors: { line, raw, reason } の配列）と入力全体のエラー（batchError: 文字列）に分ける
+const appState = {
+  pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchRowErrors: [], batchError: '', bonusView: 'all',
+};
 
-// CSV一括の ViewModel。人ごとに主な候補・その他の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる
+// CSV一括の ViewModel。人ごとに主な候補・その他の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる。
+// 読めなかった行は行番号つきの文字列にする（errors）。入力全体のエラーは message
 function buildBatchViewModel(state) {
   const shown = shownBonus(state.bonusView);
   const people = (state.batch || []).map((p, index) => {
     const pick = keep => shown.flatMap(c => p.list.filter(x => x.bonus === c && isLikely(x) === keep).sort(byTrigger));
     return { index, name: p.name, pt: p.pt, total: p.list.length, likely: pick(true), rare: pick(false), rareOpen: p.rareOpen };
   });
-  return { kind: 'batch', people, errors: state.batchErrors, bonusView: state.bonusView };
+  const errors = state.batchRowErrors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
+  return { kind: 'batch', people, errors, message: state.batchError, bonusView: state.bonusView };
 }
 
 // ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
@@ -489,7 +494,7 @@ function _renderFieldError(vm) {
     document.getElementById(id).setAttribute('aria-invalid', message ? 'true' : 'false');
   };
   set('inp-pt', vm.kind === 'error' ? vm.message : '');
-  set('inp-csv', vm.kind === 'batch' ? vm.errors.join('\n') : '');
+  set('inp-csv', vm.kind === 'batch' ? [vm.message, ...vm.errors].filter(Boolean).join('\n') : '');
 }
 
 function renderAll() {
@@ -522,17 +527,19 @@ function doBatch() {
   const { people, errors } = parseCsv(document.getElementById('inp-csv').value);
   appState.mode = 'batch';
   appState.batch = null;
+  appState.batchRowErrors = [];
+  appState.batchError = '';
   if (people.length + errors.length === 0) {
-    appState.batchErrors = ['名前と現在ptを1行以上入力してください'];
+    appState.batchError = '名前と現在ptを1行以上入力してください';
   } else if (people.length > BATCH_MAX) {
-    appState.batchErrors = [`一度に計算できるのは${BATCH_MAX}人までです（${people.length}人分あります）`];
+    appState.batchError = `一度に計算できるのは${BATCH_MAX}人までです（${people.length}人分あります）`;
   } else {
     appState.batch = people.map(p => {
       const list = solve(p.pt);
       // 主な候補が無い人だけ、別枠の候補を最初から開く
       return { ...p, list, rareOpen: !list.some(isLikely) };
     });
-    appState.batchErrors = errors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
+    appState.batchRowErrors = errors;
   }
   return renderAll();
 }
