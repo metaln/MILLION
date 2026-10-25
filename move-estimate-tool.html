@@ -311,7 +311,7 @@ const SPEC_ITEMS = [
 ];
 
 const CSV_HINT = `1行に1人分を「名前,現在pt」の形で書きます。区切りはカンマかタブです。`
-  + `ptの桁区切りのカンマと末尾の「pt」はそのままで構いません。1行目が見出し（数字なし）なら読み飛ばします。`
+  + `ptの桁区切りのカンマと末尾の「pt」はそのままで構いません。1行目が見出し（数字が無く「pt」か「ポイント」を含む）なら読み飛ばします。`
   + `一度に${BATCH_MAX}人まで計算できます。`;
 
 // HTML特殊文字エスケープ（innerHTML描画の防御）
@@ -382,7 +382,8 @@ function parseCsv(text) {
     if (sep < 0) return fail('区切り（カンマかタブ）がありません');
     const name = s.slice(0, sep).trim();
     const rest = s.slice(sep + 1);
-    if (isFirst && !/\d/.test(rest.normalize('NFKC'))) return;   // 見出し行
+    // 見出し行。数字が無いだけでは見出しとしない（1行目のデータの誤記を黙って読み飛ばさない）
+    if (isFirst && !/\d/.test(rest.normalize('NFKC')) && /pt|ポイント/i.test(rest.normalize('NFKC'))) return;
     if (!name) return fail('名前がありません');
     if (rest.includes('\t')) return fail('列が多すぎます（区切りは名前とポイントの間の1か所だけにしてください）');
     const r = parsePt(rest);

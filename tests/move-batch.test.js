@@ -99,6 +99,19 @@ test('parseCsv: 最初の行が数字の無い見出しなら読み飛ばす（�
   assert.deepEqual(parseCsv('名前\na,595').errors, [{ line: 1, raw: '名前', reason: MSG_NO_SEP }]);
 });
 
+test('parseCsv: 1行目を見出しとするのは pt 側に「pt」か「ポイント」を含むときだけ。それ以外の数字の無い1行目はエラーにする', () => {
+  // 見出し: 大文字・全角も NFKC 後に照合する。名前の欄が空でも見出し語があれば見出し
+  for (const head of ['名前,ポイント', '名前,ＰＴ', '名前,PT', ',pt', '名前\t現在のポイント'])
+    assert.deepEqual(parseCsv(`${head}\na,595`), { people: people([2, 'a', 595]), errors: [] }, head);
+  // 見出し語の無い1行目（データ行の誤記）は黙って消さず、2行目以降と同じ理由でエラーにする
+  const cases = [
+    ['かぶりこ,', MSG_NOT_INT], ['かぶりこ,abc', MSG_NOT_INT], ['かぶりこ,O', MSG_NOT_INT],
+    ['かぶりこ,不明', MSG_NOT_INT], ['名前,現在', MSG_NOT_INT], [',abc', MSG_NO_NAME],
+  ];
+  for (const [first, reason] of cases)
+    assert.deepEqual(parseCsv(`${first}\na,595`), { people: people([2, 'a', 595]), errors: [{ line: 1, raw: first, reason }] }, first);
+});
+
 test('parseCsv: 読めない行（区切りなし・名前なし・整数でない・上限超え）は行番号と理由を返し、他の行は読む', () => {
   const bad = ['a,1', 'かぶりこ 4605373', ',595', ' \t595', 'b,', 'c,abc', 'd,-5', 'e,1.5', 'f,1e3', 'g,595pts', 'h,pt',
     'i,100,000,000', 'j,99999999'];
@@ -390,6 +403,7 @@ test('フォーム: textarea と submit ボタンを一括用の form に入れ�
   assert.deepEqual([p.el('inp-csv').listeners, p.el('btn-batch').listeners], [{}, {}]);
   assert.equal(p.el('inp-csv-hint').textContent, p.CSV_HINT);
   assert.equal(p.CSV_HINT.includes(`一度に${p.BATCH_MAX}人まで計算できます。`), true);
+  assert.equal(p.CSV_HINT.includes('1行目が見出し（数字が無く「pt」か「ポイント」を含む）なら読み飛ばします。'), true);
   // ヒントとエラーを読み上げの説明として textarea に結び付ける
   assert.equal(p.el('inp-csv').getAttribute('aria-describedby'), 'inp-csv-hint inp-csv-error');
   // 読めない行の一覧は改行で並べるため、エラー欄は改行を表示に反映する
