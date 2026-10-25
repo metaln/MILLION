@@ -109,14 +109,18 @@ h1 {
 }
 .warn { color: #D42020; font-weight: 600; }
 
-/* ─── Summary ─── */
+/* ─── Summary（スクロールしても指定のポイントが見えるよう上端に固定）─── */
 .summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   margin-bottom: 18px;
   background: #f5f8ff;
   border: 1px solid #b9c7fb;
   border-radius: 5px;
   padding: 12px 16px;
   font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 .srow {
   display: flex;
@@ -127,6 +131,7 @@ h1 {
 }
 .srow + .srow { border-top: 1px solid #d6e0fb; }
 .sval { color: #1a1a1a; font-variant-numeric: tabular-nums; }
+.srow:first-child .sval { font-size: 17px; font-weight: 600; }
 
 /* ─── Candidate groups ─── */
 .group { margin-bottom: 18px; }
@@ -169,7 +174,6 @@ h1 {
   flex-shrink: 0;
 }
 .num { font-size: 14px; color: #1a1a1a; font-variant-numeric: tabular-nums; }
-.more-btn { margin-top: 4px; }
 .rare-toggle { margin: 0 0 14px; }
 
 @media (max-width: 620px) {
@@ -211,10 +215,10 @@ const CHARGE  = { name: '貯め',     point: 595,  trigger: 595 };
 const RELEASE = { name: '吐き',     point: 634,  trigger: -180 };
 const BONUS   = { name: 'ボーナス', point: 3000, max: 5 };
 const TRIGGER_MIN  = -10000;                 // トリガー数はこれを下回らない
+const TRIGGER_MAX  = 999999;                 // ゲーム内のトリガー数の上限（6桁）
 const LIKELY_BONUS = [0, BONUS.max];         // ボーナス回数はほとんどがこのどちらか
 const RARE_BONUS   = Array.from({ length: BONUS.max + 1 }, (_, c) => c).filter(c => !LIKELY_BONUS.includes(c));
-const MAX_PT       = 999999999;              // 指定ポイントの入力上限
-const SHOW_LIMIT   = 10;                     // 1グループで最初に表示する候補数
+const MAX_PT       = 99999999;               // 指定ポイントの入力上限（8桁）
 
 const bonusLabel = cs => cs.length > 1 && cs.at(-1) - cs[0] === cs.length - 1
   ? `${cs[0]}〜${cs.at(-1)}回`
@@ -226,7 +230,7 @@ const SPEC_ITEMS = [
   `${CHARGE.name}: ${CHARGE.point.toLocaleString()}ptとトリガー${CHARGE.trigger.toLocaleString()}個を得ます。`,
   `${RELEASE.name}: トリガー${(-RELEASE.trigger).toLocaleString()}個を使い、${RELEASE.point.toLocaleString()}ptを得ます。`,
   `${BONUS.name}: ${BONUS.point.toLocaleString()}ptを得ます。使えるのは最大${BONUS.max}回です。`,
-  `トリガー数は0個から数え、最後のトリガー数が${TRIGGER_MIN.toLocaleString()}個を下回る組み合わせは候補から外します。`,
+  `トリガー数は0個から数えます。最後のトリガー数が${TRIGGER_MIN.toLocaleString()}〜${TRIGGER_MAX.toLocaleString()}個に収まらない組み合わせは候補に含めません。`,
   `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は別枠に分けます。`,
   `同じ${BONUS.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
 ];
@@ -239,7 +243,8 @@ const signed = n => (n > 0 ? '+' : '') + fmt(n);
 
 // pt = 貯め×595 + 吐き×634 + ボーナス×3000 を満たす回数の組をすべて返す。
 // ボーナス回数と吐き回数を決めると貯め回数が決まるため、その2つを走査する。
-// 最後のトリガー数が下限以上なら、貯めを先に済ませる順序で途中も下限を下回らない。
+// 最後のトリガー数が範囲内なら、途中も範囲内に収まる順序がある。下限に届くまで吐きを打ち、
+// 届いたら貯めを1回挟む。吐きが尽きたら残りの貯めを打つ。途中の最大は0か最後の値で、最小は下限以上。
 // そのため判定は最後のトリガー数だけで行う。
 function solve(pt) {
   const list = [];
@@ -250,7 +255,7 @@ function solve(pt) {
       if (r % CHARGE.point !== 0) continue;
       const a = r / CHARGE.point;
       const trigger = CHARGE.trigger * a + RELEASE.trigger * b;
-      if (trigger >= TRIGGER_MIN) list.push({ charge: a, release: b, bonus: c, trigger });
+      if (trigger >= TRIGGER_MIN && trigger <= TRIGGER_MAX) list.push({ charge: a, release: b, bonus: c, trigger });
     }
   }
   return list;
@@ -260,20 +265,17 @@ function solve(pt) {
 // トリガー数の差が 484,330 の倍数になる。絶対値が等しい2件があれば負の側は −242,165 以下で、下限で除外済み
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
-const appState = { pt: 0, list: null, error: '', expanded: new Set(), rareOpen: false };
+const appState = { pt: 0, list: null, error: '', rareOpen: false };
 
 // ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
+// 1グループの候補は最大3件（トリガー数の範囲の幅が、候補どうしの差 484,330 の2倍強のため）。全件を表示する
 function buildViewModel(state) {
   if (state.error) return { kind: 'error', message: state.error };
   if (!state.list) return { kind: 'idle' };
-  const toGroup = c => {
-    const all = state.list.filter(x => x.bonus === c).sort(byTrigger);
-    const items = state.expanded.has(c) ? all : all.slice(0, SHOW_LIMIT);
-    return { bonus: c, items, total: all.length, rest: all.length - items.length };
-  };
+  const toGroup = c => ({ bonus: c, items: state.list.filter(x => x.bonus === c).sort(byTrigger) });
   const likely = LIKELY_BONUS.map(toGroup);
   const rare   = RARE_BONUS.map(toGroup);
-  const count  = gs => gs.reduce((n, g) => n + g.total, 0);
+  const count  = gs => gs.reduce((n, g) => n + g.items.length, 0);
   const likelyCount = count(likely);
   const rareCount   = count(rare);
   if (likelyCount + rareCount === 0) return { kind: 'none' };
@@ -281,17 +283,14 @@ function buildViewModel(state) {
 }
 
 function _groupHtml(g) {
-  const head = `<h2 class="group-title">${esc(BONUS.name)} ${g.bonus}回<span class="group-count">${g.total}件</span></h2>`;
-  if (g.total === 0) return `<section class="group">${head}<div class="group-empty">該当なし</div></section>`;
+  const head = `<h2 class="group-title">${esc(BONUS.name)} ${g.bonus}回<span class="group-count">${g.items.length}件</span></h2>`;
+  if (g.items.length === 0) return `<section class="group">${head}<div class="group-empty">該当なし</div></section>`;
   const rows = g.items.map(x => `<div class="result-row">
       <span class="cell"><span class="stage-badge">${esc(CHARGE.name)}</span><span><span class="num">${fmt(x.charge)}</span>回</span></span>
       <span class="cell"><span class="stage-badge">${esc(RELEASE.name)}</span><span><span class="num">${fmt(x.release)}</span>回</span></span>
       <span class="cell cell-trig">トリガー数<span class="num">${signed(x.trigger)}</span></span>
     </div>`).join('');
-  const more = g.rest > 0
-    ? `<button type="button" class="spec-toggle more-btn" data-action="more" data-bonus="${g.bonus}">残り${g.rest}件を表示</button>`
-    : '';
-  return `<section class="group">${head}${rows}${more}</section>`;
+  return `<section class="group">${head}${rows}</section>`;
 }
 
 function _resultHtml(vm) {
@@ -321,7 +320,6 @@ function doCalc() {
   // parseInt は "1e3" を 1 と読むため Number で読む。非有限（Infinity・非数）は0
   const toInt = v => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; };
   appState.pt       = toInt(document.getElementById('inp-pt').value);
-  appState.expanded = new Set();
   if (appState.pt > MAX_PT) {
     appState.list  = null;
     appState.error = `ポイントは${MAX_PT.toLocaleString()}以下にしてください`;
@@ -339,7 +337,6 @@ document.getElementById('spec-body').innerHTML = SPEC_ITEMS.map(s => `<li>${esc(
 document.getElementById('result').addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
-  if (btn.dataset.action === 'more') appState.expanded.add(Number(btn.dataset.bonus));
   if (btn.dataset.action === 'rare') appState.rareOpen = !appState.rareOpen;
   renderAll();
 });

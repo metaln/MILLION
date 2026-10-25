@@ -10,7 +10,7 @@ const HTML_PATH = path.join(__dirname, '..', '..', 'move-estimate-tool.html');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 
 const EXPORTS = [
-  'CHARGE', 'RELEASE', 'BONUS', 'TRIGGER_MIN', 'LIKELY_BONUS', 'RARE_BONUS', 'MAX_PT', 'SHOW_LIMIT',
+  'CHARGE', 'RELEASE', 'BONUS', 'TRIGGER_MIN', 'TRIGGER_MAX', 'LIKELY_BONUS', 'RARE_BONUS', 'MAX_PT',
   'LIKELY_LABEL', 'RARE_LABEL', 'SPEC_ITEMS', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
   'buildViewModel', '_groupHtml', '_resultHtml', 'renderAll', 'doCalc',
 ];
@@ -39,11 +39,8 @@ function loadMove({ patches = [] } = {}) {
     fire('btn-calc', 'click');
   };
   // #result のイベント委譲へ渡すクリック。action=null は data-action の無い箇所のクリック
-  const clickResult = (action, bonus) => fire('result', 'click', {
-    target: {
-      closest: () => (action == null ? null
-        : { dataset: bonus == null ? { action } : { action, bonus: String(bonus) } }),
-    },
+  const clickResult = action => fire('result', 'click', {
+    target: { closest: () => (action == null ? null : { dataset: { action } }) },
   });
 
   return { ...mod.exports, document, el, fire, calc, clickResult };
@@ -57,11 +54,9 @@ function parseResult(html) {
     const head = chunk.match(/<h2 class="group-title">([^<]*)<span class="group-count">(\d+)件<\/span><\/h2>/);
     const rows = [...chunk.matchAll(/<div class="result-row">([\s\S]*?)<\/div>/g)]
       .map(m => [...m[1].matchAll(/<span class="num">([^<]*)<\/span>/g)].map(n => n[1]));
-    const more = chunk.match(/data-action="more" data-bonus="(\d+)">残り(\d+)件を表示<\/button>/);
     return {
       title: head[1], total: Number(head[2]), rows,
       empty: chunk.includes('<div class="group-empty">該当なし</div>'),
-      more: more ? { bonus: Number(more[1]), rest: Number(more[2]) } : null,
     };
   });
   const toggle = html.match(/data-action="rare" aria-expanded="(true|false)">([^<]*)<\/button>/);
