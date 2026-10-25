@@ -454,6 +454,16 @@ test('HTML: 補助テキスト（初期案内・件数・該当なし）の文�
   assert.equal(contrast('#000000', '#ffffff'), 21);
 });
 
+test('HTML: 入力欄の枠線は白背景に対し 3:1 以上（入力範囲を示すのは枠線だけ）', () => {
+  for (const sel of ['.field input[type=number]', '.field textarea']) {
+    const c = cssColor(sel, 'border');
+    assert.equal(typeof c, 'string', sel);
+    assert.equal(contrast(c, '#ffffff') >= 3, true, `${sel} ${c} ${contrast(c, '#ffffff').toFixed(2)}`);
+  }
+  // 対照: 変更前の #ccc は届かない（約 1.61:1）
+  assert.equal(contrast('#cccccc', '#ffffff') < 3, true);
+});
+
 test('HTML: 入力欄のフォーカスは枠線の色でなくアウトラインで示す（エラーの赤枠中も見える）', () => {
   const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
   assert.equal(css.startsWith('<style>') && css.includes('.field textarea {'), true);
