@@ -47,10 +47,10 @@ const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['形式', 'シ�
 const TOGGLE = (i, open, n) => [String(i), String(open), `その他の候補（${n}件）を${open ? '隠す' : '表示'}`];
 const MSG_EMPTY = '名前と現在ptを1行以上入力してください';
 const MSG_NOT_INT = 'ポイントが0以上の整数ではありません';
-const MSG_NO_SEP = '区切り（カンマかタブ）がありません';
+const MSG_NO_SEP = 'カンマかタブの区切りがありません';
 const MSG_NO_NAME = '名前がありません';
 const MSG_OVER = 'ポイントは99,999,999以下にしてください';
-const MSG_COLS = '列が多すぎます（区切りは名前とポイントの間の1か所だけにしてください）';
+const MSG_COLS = '列が多すぎます。区切りは名前とポイントの間の1か所だけにしてください';
 const MSG_GROUP = '桁区切りは3桁ごとにしてください';
 const MSG_AMBIG = '名前の末尾の数字がポイントの一部かもしれません。名前とポイントの間にカンマかタブを入れてください';
 const people = (...xs) => xs.map(([line, name, pt]) => ({ line, name, pt }));
@@ -451,7 +451,7 @@ test('フォーム: textarea と submit ボタンを一括用の form に入れ�
   assert.deepEqual([p.el('inp-csv').listeners, p.el('btn-batch').listeners], [{}, {}]);
   assert.equal(p.el('inp-csv-hint').textContent, p.CSV_HINT);
   assert.equal(p.CSV_HINT.includes(`一度に${p.BATCH_MAX}人まで計算できます。`), true);
-  assert.equal(p.CSV_HINT.includes('1行目が見出し（数字が無く「pt」か「ポイント」を含む）なら読み飛ばします。'), true);
+  assert.equal(p.CSV_HINT.includes('1行目に数字が無く「pt」か「ポイント」を含むときは、見出しとして読み飛ばします。'), true);
   // ヒントとエラーを読み上げの説明として textarea に結び付ける
   assert.equal(p.el('inp-csv').getAttribute('aria-describedby'), 'inp-csv-hint inp-csv-error');
   // 読めない行の一覧は改行で並べるため、エラー欄は改行を表示に反映する

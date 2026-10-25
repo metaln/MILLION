@@ -226,7 +226,7 @@ test('切り替え: CSV一括の全員を計算し直し、サマリと要約に
   ]);
   // 同じ文言は読み上げのため次のフレームで入れ直す（#20）。入れ直した後の表示を見る
   p.flushRaf();
-  assert.deepEqual(fieldError(p, 'inp-csv'), ['4行目「bad」: 区切り（カンマかタブ）がありません', 'true']);
+  assert.deepEqual(fieldError(p, 'inp-csv'), ['4行目「bad」: カンマかタブの区切りがありません', 'true']);
   assert.deepEqual(viewButtons(html(p)), []);
 });
 
