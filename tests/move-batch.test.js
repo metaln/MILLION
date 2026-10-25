@@ -12,7 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadMove, parseResult, HTML } = require('./helpers/load-move');
+const { loadMove, parseResult, viewButtons, HTML } = require('./helpers/load-move');
 
 const mv = loadMove();
 const { parseCsv } = mv;
@@ -44,7 +44,7 @@ const batchResult = p => parseBatch(p.el('result').innerHTML);
 const csvError = p => [p.el('inp-csv-error').textContent, p.el('inp-csv').getAttribute('aria-invalid')];
 const ptError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
 const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['読めなかった行', `${bad}行`]];
-const TOGGLE = (i, open, n) => [String(i), String(open), `◇ ボーナス1〜4回の候補（${n}件）を${open ? '隠す' : '表示'}`];
+const TOGGLE = (i, open, n) => [String(i), String(open), `◇ その他の候補（${n}件）を${open ? '隠す' : '表示'}`];
 const MSG_EMPTY = '名前と現在ptを1行以上入力してください';
 const MSG_NOT_INT = 'ポイントが0以上の整数ではありません';
 const MSG_NO_SEP = '区切り（カンマかタブ）がありません';
@@ -136,14 +136,15 @@ test('一括: サンプルCSV（画像の10人分）。人ごとの候補は1人
     ['きっさ', '3,892,771'], ['スターダスト', '3,877,849'], ['幸せの多重奏', '3,811,082'], ['らんぜん', '3,650,182'],
     ['ドウガチ(仮)', '3,435,870'], ['タツノスケ', '3,363,601'],
   ]);
-  // 先頭の1人は値を直書きで固定する（ボーナス0回→5回、各回数の中はトリガー数が0に近い順）
+  // 先頭の1人は値を直書きで固定する（ボーナス0回→5回、各回数の中はトリガー数が0に近い順）。
+  // 吐き4桁かつトリガー数50万以上の2件（+965,165・+555,375）はその他の候補へ移る
   assert.deepEqual(r.people[0], {
-    name: 'かぶりこ', pt: '4,605,373', rare: [], note: null, toggle: TOGGLE(0, false, 8),
-    likely: [
-      ['0', '1,707', '5,662', '-3,495'], ['0', '2,341', '5,067', '+480,835'], ['0', '2,975', '4,472', '+965,165'],
-      ['5', '1,799', '5,552', '+71,045'], ['5', '2,433', '4,957', '+555,375'],
-    ],
+    name: 'かぶりこ', pt: '4,605,373', rare: [], note: null, toggle: TOGGLE(0, false, 10),
+    likely: [['0', '1,707', '5,662', '-3,495'], ['0', '2,341', '5,067', '+480,835'], ['5', '1,799', '5,552', '+71,045']],
   });
+  p.clickResult('rare-person', 0);
+  assert.deepEqual(batchResult(p).people[0].rare.slice(0, 2), [['0', '2,975', '4,472', '+965,165'], ['5', '2,433', '4,957', '+555,375']]);
+  p.clickResult('rare-person', 0);
   // 全員を開いてから、1人用の結果と突き合わせる
   r.people.forEach((_, i) => p.clickResult('rare-person', i));
   batchResult(p).people.forEach((x, i) => {
@@ -159,7 +160,7 @@ test('一括: 候補なしは警告、主な候補が無い人だけ別枠を最
   p.batch('なし,1\n別枠だけ,3000\n両方,57120\n主だけ,15000');
   assert.deepEqual(batchResult(p).people, [
     { name: 'なし', pt: '1', likely: [], rare: [], note: 'warn:合う組み合わせがありません', toggle: null },
-    { name: '別枠だけ', pt: '3,000', likely: [], rare: [['1', '0', '0', '0']], note: 'ボーナス0回・5回の候補はありません', toggle: TOGGLE(1, true, 1) },
+    { name: '別枠だけ', pt: '3,000', likely: [], rare: [['1', '0', '0', '0']], note: '主な候補はありません', toggle: TOGGLE(1, true, 1) },
     { name: '両方', pt: '57,120', likely: [['0', '96', '0', '+57,120']], rare: [], note: null, toggle: TOGGLE(2, false, 1) },
     { name: '主だけ', pt: '15,000', likely: [['5', '0', '0', '0']], rare: [], note: null, toggle: null },
   ]);
@@ -184,6 +185,27 @@ test('一括: 別枠のボタンは押した人だけ開閉し、範囲外・数
   assert.deepEqual(toggles(), ['false', 'true', 'false']);
   p.batch('a,57120\nb,57120\nc,3000');
   assert.deepEqual(toggles(), ['false', 'false', 'true']);
+});
+
+test('一括: 0回・5回の切り替えは全員の主な候補・その他の候補に効き、再計算しても保つ。候補なしの警告は切り替えによらない', () => {
+  const p = loadMove();
+  p.batch('かぶりこ,4605373\n主だけ,15000\nなし,1');
+  assert.deepEqual(viewButtons(p.el('result').innerHTML), [['all', 'true', '両方'], ['0', 'false', '0回'], ['5', 'false', '5回']]);
+  p.clickView('0');
+  p.clickResult('rare-person', 0);
+  const r = batchResult(p);
+  assert.deepEqual(viewButtons(p.el('result').innerHTML)[1], ['0', 'true', '0回']);
+  assert.deepEqual(r.people[0].likely, [['0', '1,707', '5,662', '-3,495'], ['0', '2,341', '5,067', '+480,835']]);
+  assert.deepEqual([r.people[0].toggle, r.people[0].rare[0], r.people[0].rare.length],
+    [TOGGLE(0, true, 9), ['0', '2,975', '4,472', '+965,165'], 9]);
+  // 5回の候補しか無い人は、0回だけを表示すると「主な候補はありません」（警告ではない）
+  assert.deepEqual([r.people[1].likely, r.people[1].note, r.people[1].toggle], [[], '主な候補はありません', null]);
+  assert.equal(r.people[2].note, 'warn:合う組み合わせがありません');
+  // 再計算しても切り替えは保つ
+  p.batch('主だけ,15000');
+  assert.deepEqual([viewButtons(p.el('result').innerHTML)[1], batchResult(p).people[0].note], [['0', 'true', '0回'], '主な候補はありません']);
+  p.clickView('5');
+  assert.deepEqual(batchResult(p).people[0].likely, [['5', '0', '0', '0']]);
 });
 
 test('一括: 読めない行は入力欄の直下に行番号つきで並べ、読めた行は計算する。21文字以上の行は20文字で切る', () => {

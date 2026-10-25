@@ -14,6 +14,7 @@ const EXPORTS = [
   'LIKELY_LABEL', 'RARE_LABEL', 'SPEC_ITEMS', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
   'buildViewModel', '_groupHtml', '_resultHtml', '_renderFieldError', 'renderAll', 'doCalc',
   'BATCH_MAX', 'CSV_HINT', 'parseCsv', 'buildBatchViewModel', 'doBatch',
+  'UNLIKELY_RELEASE', 'UNLIKELY_TRIGGER', 'BONUS_ORDER', 'BONUS_VIEWS', 'isLikely', 'shownBonus',
 ];
 
 // patches: [{ from, to }] 各 from はスクリプト内でちょうど1回出現すること（別関数への誤爆防止）
@@ -56,8 +57,17 @@ function loadMove({ patches = [] } = {}) {
     target: { closest: () => (action == null ? null : { dataset: index == null ? { action } : { action, index: String(index) } }) },
   });
 
-  return { ...mod.exports, document, el, fire, calc, batch, clickResult };
+  // 表示するボーナス回数の切り替えボタン（data-view）。view=undefined は data-view の無いボタン
+  const clickView = view => fire('result', 'click', {
+    target: { closest: () => ({ dataset: view === undefined ? { action: 'bonus-view' } : { action: 'bonus-view', view } }) },
+  });
+
+  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView };
 }
+
+// 結果欄の切り替えボタンの [data-view, aria-pressed] の並び
+const viewButtons = html => [...html.matchAll(/data-action="bonus-view" data-view="([^"]*)" aria-pressed="(true|false)">([^<]*)<\/button>/g)]
+  .map(m => [m[1], m[2], m[3]]);
 
 // _resultHtml の出力を、サマリ・グループ・別枠の切り替えボタンに分解
 function parseResult(html) {
@@ -76,4 +86,4 @@ function parseResult(html) {
   return { summary, groups, toggle: toggle ? { expanded: toggle[1], label: toggle[2] } : null };
 }
 
-module.exports = { loadMove, parseResult, HTML, HTML_PATH };
+module.exports = { loadMove, parseResult, viewButtons, HTML, HTML_PATH };

@@ -11,10 +11,14 @@
 //   静的HTMLの初期表示と一致することだけ見る
 // - サマリの上端固定の実際の見え方・フォーカス位置・色: 目視確認の範囲（CSS の宣言の有無だけ見る）
 // - 入力欄での Enter による送信: ブラウザの標準動作（暗黙の submit）。form の中に入力欄と submit ボタンがある構造だけ見る
+// - 0回・5回の候補が「吐き4桁かつトリガー数50万以上」の組だけになる pt: 起きない。トリガー数 t（50万〜999,995）の組から
+//   貯め−634・吐き+595 とした組はトリガー数 t−484,330（15,670〜515,665）。50万以上ならもう1回引くと 31,335 以上になる。
+//   どちらも貯めが足りる（595×633 < 500,000 のため t の組は貯め634回以上、t ≥ 984,330 なら1,654回以上）。
+//   よって同じ回数に主な候補が必ず残り、主な候補の有無で決める別枠の初期開閉は外す前と変わらない
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadMove, parseResult, HTML } = require('./helpers/load-move');
+const { loadMove, parseResult, viewButtons, HTML } = require('./helpers/load-move');
 
 const mv = loadMove();
 const { solve } = mv;
@@ -27,11 +31,12 @@ const MSG_NONE = '<div class="placeholder warn">指定のポイントに合う�
 const MSG_OVER = `ポイントは${(99999999).toLocaleString()}以下にしてください`;
 const fieldError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
 const SUMMARY = (pt, likely, rare) => [
-  ['指定のポイント', pt.toLocaleString()], ['ボーナス0回・5回の候補', `${likely}件`], ['ボーナス1〜4回の候補', `${rare}件`],
+  ['指定のポイント', pt.toLocaleString()], ['主な候補', `${likely}件`], ['その他の候補', `${rare}件`],
 ];
 const EMPTY = c => ({ title: `ボーナス ${c}回`, total: 0, rows: [], empty: true });
-const TOGGLE_CLOSED = { expanded: 'false', label: '◇ ボーナス1〜4回の候補を表示' };
-const TOGGLE_OPEN = { expanded: 'true', label: '◇ ボーナス1〜4回の候補を隠す' };
+const TOGGLE_CLOSED = { expanded: 'false', label: '◇ その他の候補を表示' };
+const TOGGLE_OPEN = { expanded: 'true', label: '◇ その他の候補を隠す' };
+const VIEWS = pressed => ['all', '0', '5'].map(v => [v, String(v === pressed), v === 'all' ? '両方' : `${v}回`]);
 
 // 検算用: solve とは別の手順（回数の組を先にすべて作り、合計ポイントで引く）で、pt が [lo, hi] の候補を数え直す
 function forward(lo, hi) {
@@ -72,7 +77,30 @@ test('定数: 動きのポイント・トリガー数の範囲・入力上限は
   assert.deepEqual(mv.BONUS, { name: 'ボーナス', point: 3000, max: 5 });
   assert.deepEqual([mv.TRIGGER_MIN, mv.TRIGGER_MAX], [-10000, 999999]);
   assert.deepEqual([mv.LIKELY_BONUS, mv.RARE_BONUS], [[0, 5], [1, 2, 3, 4]]);
+  assert.deepEqual([mv.UNLIKELY_RELEASE, mv.UNLIKELY_TRIGGER], [1000, 500000]);
+  assert.deepEqual([mv.BONUS_ORDER, mv.BONUS_VIEWS], [[0, 5, 1, 2, 3, 4], ['all', '0', '5']]);
   assert.equal(mv.MAX_PT, 99999999);
+});
+
+test('isLikely: ボーナス0回・5回のうち、吐き1,000回以上かつトリガー数500,000以上の組だけを外す（境界の前後）', () => {
+  const x = (bonus, release, trigger) => mv.isLikely({ charge: 0, release, bonus, trigger });
+  const cases = [
+    [0, 1000, 500000, false], [5, 1000, 500000, false], [0, 5662, 965165, false],
+    // 片方だけ満たす組は主な候補に残す
+    [0, 999, 500000, true], [0, 1000, 499995, true], [0, 999, 999995, true], [0, 9999, 499995, true],
+    // 吐き5桁も「4桁以上」として外す
+    [0, 10000, 500000, false],
+    [0, 0, 0, true], [5, 0, -10000, true], [0, 1000, -10000, true],
+    // 1〜4回は吐き・トリガー数によらずその他
+    [1, 0, 0, false], [4, 999, 0, false], [2, 1000, 500000, false],
+  ];
+  assert.deepEqual(cases.map(([b, r, t]) => x(b, r, t)), cases.map(c => c[3]));
+});
+
+test('shownBonus: 切り替えで0回・5回の片方を外し、1〜4回は常に残す。並びは BONUS_ORDER', () => {
+  assert.deepEqual(['all', '0', '5'].map(mv.shownBonus), [[0, 5, 1, 2, 3, 4], [0, 1, 2, 3, 4], [5, 1, 2, 3, 4]]);
+  // 数値の 0・5 は文字列の data-view と一致しない（クリック経路は常に文字列）。'all' 以外の未知の値は1〜4回だけ
+  assert.deepEqual([0, 5, '1', 'All', ''].map(mv.shownBonus), Array(5).fill([1, 2, 3, 4]));
 });
 
 test('solve: 0〜100,000 の全ポイントで前向き列挙と一致する（トリガー下限で外れる組を含む範囲）', () => {
@@ -215,6 +243,67 @@ test('別枠: 候補が0件ならボタンを出さない（595）', () => {
   });
 });
 
+test('その他: 吐き4桁かつトリガー数50万以上の0回・5回の組は、その他の候補の同じ回数のグループへ移す（4,605,373）', () => {
+  const p = loadMove();
+  p.calc(4605373);
+  const r = result(p);
+  assert.deepEqual([r.summary, r.toggle], [SUMMARY(4605373, 3, 10), TOGGLE_CLOSED]);
+  assert.deepEqual(r.groups, [
+    { title: 'ボーナス 0回', total: 2, rows: [['1,707', '5,662', '-3,495'], ['2,341', '5,067', '+480,835']], empty: false },
+    { title: 'ボーナス 5回', total: 1, rows: [['1,799', '5,552', '+71,045']], empty: false },
+  ]);
+  p.clickResult('rare');
+  // その他の候補は 0回→5回→1〜4回 の順。0回・5回のグループは候補があるときだけ出る
+  assert.deepEqual(result(p).groups.slice(2, 4), [
+    { title: 'ボーナス 0回', total: 1, rows: [['2,975', '4,472', '+965,165']], empty: false },
+    { title: 'ボーナス 5回', total: 1, rows: [['2,433', '4,957', '+555,375']], empty: false },
+  ]);
+  assert.deepEqual(outline(p).slice(4).map(g => g[0]), ['ボーナス 1回', 'ボーナス 2回', 'ボーナス 3回', 'ボーナス 4回']);
+});
+
+test('切り替え: 0回・5回の片方だけを表示し、サマリの件数・その他の候補もそれに合わせる', () => {
+  const p = loadMove();
+  p.calc(4605373);
+  assert.deepEqual(viewButtons(p.el('result').innerHTML), VIEWS('all'));
+  p.clickView('5');
+  p.clickResult('rare');
+  const r = result(p);
+  assert.deepEqual([viewButtons(p.el('result').innerHTML), r.summary], [VIEWS('5'), SUMMARY(4605373, 1, 9)]);
+  assert.deepEqual(outline(p), [
+    ['ボーナス 5回', 1, 1], ['ボーナス 5回', 1, 1],
+    ['ボーナス 1回', 2, 2], ['ボーナス 2回', 2, 2], ['ボーナス 3回', 2, 2], ['ボーナス 4回', 2, 2],
+  ]);
+  p.clickView('0');
+  assert.deepEqual([viewButtons(p.el('result').innerHTML), result(p).summary], [VIEWS('0'), SUMMARY(4605373, 2, 9)]);
+  assert.deepEqual(outline(p).slice(0, 2), [['ボーナス 0回', 2, 2], ['ボーナス 0回', 1, 1]]);
+  p.clickView('all');
+  assert.deepEqual(result(p).summary, SUMMARY(4605373, 3, 10));
+});
+
+test('切り替え: 再計算しても保ち、選んだ回数の候補が無ければそのグループを「該当なし」にする', () => {
+  const p = loadMove();
+  p.calc(57120);
+  p.clickView('5');
+  p.calc(57120);
+  const r = result(p);
+  // 57,120 はボーナス0回の候補だけ。5回だけを表示すると主な候補は0件だが、組み合わせはあるので警告にしない
+  assert.deepEqual([viewButtons(p.el('result').innerHTML), r.summary, r.groups, r.toggle],
+    [VIEWS('5'), SUMMARY(57120, 0, 1), [EMPTY(5)], TOGGLE_CLOSED]);
+  // 対照: 組み合わせが無い pt は切り替えによらず警告
+  p.calc(1);
+  assert.equal(p.el('result').innerHTML, MSG_NONE);
+});
+
+test('切り替え: 決まった値以外（1〜4回・数値でない・空・data-view なし）は無視する', () => {
+  const p = loadMove();
+  p.calc(4605373);
+  p.clickView('5');
+  for (const v of ['1', '4', 'All', '', ' 5', '05', undefined]) {
+    p.clickView(v);
+    assert.deepEqual([p.appState.bonusView, viewButtons(p.el('result').innerHTML)], ['5', VIEWS('5')], `view=${JSON.stringify(v)}`);
+  }
+});
+
 test('表示: 組み合わせが無いポイントは警告だけを出す（前の結果は残さない）', () => {
   const p = loadMove();
   for (const pt of [1, 594, 18000]) {
@@ -229,7 +318,8 @@ test('doCalc: 上限 99,999,999（8桁）ちょうどは計算し、+1 は入力
   // 初期状態: エラー表示は空で、aria-invalid は未設定
   assert.deepEqual(fieldError(p), ['', null]);
   p.calc(99999999);
-  assert.deepEqual([fieldError(p), result(p).summary], [['', 'false'], SUMMARY(99999999, 4, 8)]);
+  // 0回・5回の各2件のうち、吐き4桁かつトリガー数50万以上の +585,365・+659,905 はその他の候補へ移る
+  assert.deepEqual([fieldError(p), result(p).summary], [['', 'false'], SUMMARY(99999999, 2, 10)]);
   p.calc(100000000);
   // 警告は入力欄の直下だけに出し、結果欄は前の結果を残さず空にする
   assert.deepEqual([fieldError(p), p.el('result').innerHTML, p.appState.list], [[MSG_OVER, 'true'], '', null]);
@@ -275,7 +365,7 @@ test('結果欄: data-action の無い箇所のクリックは描画し直さな
   assert.deepEqual(result(p).toggle, TOGGLE_OPEN);
 });
 
-test('仕様: 定数から組んだ6項目を表示し、トグルで開閉する', () => {
+test('仕様: 定数から組んだ7項目を表示し、トグルで開閉する', () => {
   const p = loadMove();
   const { CHARGE: C, RELEASE: R, BONUS: B } = p;
   const n = v => v.toLocaleString();
@@ -284,7 +374,8 @@ test('仕様: 定数から組んだ6項目を表示し、トグルで開閉す�
     `${R.name}: トリガー${n(-R.trigger)}個を使い、${n(R.point)}ptを得ます。`,
     `${B.name}: ${n(B.point)}ptを得ます。使えるのは最大${B.max}回です。`,
     `トリガー数は0個から数えます。最後のトリガー数が${n(p.TRIGGER_MIN)}〜${n(p.TRIGGER_MAX)}個に収まらない組み合わせは候補に含めません。`,
-    `${B.name}は${p.LIKELY_LABEL}のことがほとんどのため、${p.RARE_LABEL}の候補は別枠に分けます。`,
+    `${B.name}は${p.LIKELY_LABEL}のことがほとんどのため、${p.RARE_LABEL}の候補は「その他の候補」に分けます。`,
+    `${R.name}が${n(p.UNLIKELY_RELEASE)}回以上で、最後のトリガー数が${n(p.UNLIKELY_TRIGGER)}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
     `同じ${B.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));

@@ -154,6 +154,22 @@ h1, .group-title { text-wrap: balance; }
 .srow + .srow { border-top: 1px solid #d6e0fb; }
 .sval { color: #1a1a1a; font-variant-numeric: tabular-nums; }
 .srow:first-child .sval { font-size: 17px; font-weight: 600; }
+/* 表示するボーナス回数の切り替え（押されている側を塗る）*/
+.seg { display: inline-flex; }
+.seg-btn {
+  min-width: 48px;
+  padding: 3px 10px;
+  background: #fff;
+  border: 1px solid #3460FB;
+  color: #0055AD;
+  font-size: 12px;
+  cursor: pointer;
+}
+.seg-btn + .seg-btn { border-left: none; }
+.seg-btn:first-child { border-radius: 4px 0 0 4px; }
+.seg-btn:last-child { border-radius: 0 4px 4px 0; }
+.seg-btn:hover { background: #e8eeff; }
+.seg-btn[aria-pressed="true"] { background: #3460FB; color: #fff; }
 
 /* ─── Candidate groups ─── */
 .group { margin-bottom: 18px; }
@@ -265,6 +281,9 @@ const TRIGGER_MIN  = -10000;                 // トリガー数はこれを下�
 const TRIGGER_MAX  = 999999;                 // ゲーム内のトリガー数の上限（6桁）
 const LIKELY_BONUS = [0, BONUS.max];         // ボーナス回数はほとんどがこのどちらか
 const RARE_BONUS   = Array.from({ length: BONUS.max + 1 }, (_, c) => c).filter(c => !LIKELY_BONUS.includes(c));
+const UNLIKELY_RELEASE = 1000;               // 吐きが4桁（この回数以上）で
+const UNLIKELY_TRIGGER = 500000;             // 最後のトリガー数がこの数以上の組はほとんど起きない
+const BONUS_ORDER  = [...LIKELY_BONUS, ...RARE_BONUS];   // 候補を並べるボーナス回数の順
 const MAX_PT       = 99999999;               // 指定ポイントの入力上限（8桁）
 const BATCH_MAX    = 50;                     // CSVで一度に計算する人数の上限（運用は1時間帯あたり5〜15人）
 
@@ -279,7 +298,8 @@ const SPEC_ITEMS = [
   `${RELEASE.name}: トリガー${(-RELEASE.trigger).toLocaleString()}個を使い、${RELEASE.point.toLocaleString()}ptを得ます。`,
   `${BONUS.name}: ${BONUS.point.toLocaleString()}ptを得ます。使えるのは最大${BONUS.max}回です。`,
   `トリガー数は0個から数えます。最後のトリガー数が${TRIGGER_MIN.toLocaleString()}〜${TRIGGER_MAX.toLocaleString()}個に収まらない組み合わせは候補に含めません。`,
-  `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は別枠に分けます。`,
+  `${BONUS.name}は${LIKELY_LABEL}のことがほとんどのため、${RARE_LABEL}の候補は「その他の候補」に分けます。`,
+  `${RELEASE.name}が${UNLIKELY_RELEASE.toLocaleString()}回以上で、最後のトリガー数が${UNLIKELY_TRIGGER.toLocaleString()}個以上の組み合わせも、ほとんど起きないため「その他の候補」に分けます。`,
   `同じ${BONUS.name}回数の候補は、最後のトリガー数が0に近い順に並べます。`,
 ];
 
@@ -317,6 +337,15 @@ function solve(pt) {
 // トリガー数の差が 484,330 の倍数になる。絶対値が等しい2件があれば負の側は −242,165 以下で、下限で除外済み
 const byTrigger = (x, y) => Math.abs(x.trigger) - Math.abs(y.trigger);
 
+// 主な候補か（ボーナスが0回・5回で、吐き4桁かつトリガー数50万以上の組でない）。それ以外は「その他の候補」
+const isLikely = x => LIKELY_BONUS.includes(x.bonus)
+  && !(x.release >= UNLIKELY_RELEASE && x.trigger >= UNLIKELY_TRIGGER);
+
+// 表示するボーナス回数の切り替え。'all' は0回・5回の両方。1〜4回は切り替えによらず表示する
+const BONUS_VIEWS = ['all', ...LIKELY_BONUS.map(String)];
+const viewLabel = v => (v === 'all' ? '両方' : `${v}回`);
+const shownBonus = view => BONUS_ORDER.filter(c => view === 'all' || String(c) === view || !LIKELY_BONUS.includes(c));
+
 // 貼り付けたCSVを人ごとの { line, name, pt } と、読めなかった行 { line, raw, reason } に分ける。
 // 名前は最初の区切りより前（名前にカンマを含む行は正しく読めない）。
 // ptは全角を半角へ寄せ、桁区切り・空白・末尾の pt を除いてから、0以上の整数だけを受け付ける（小数・指数表記・負は不可）
@@ -346,31 +375,35 @@ function parseCsv(text) {
 
 const shorten = s => (s.length > 20 ? `${s.slice(0, 20)}…` : s);
 
-const appState = { pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchErrors: [] };
+const appState = { pt: 0, list: null, error: '', rareOpen: false, mode: 'single', batch: null, batchErrors: [], bonusView: 'all' };
 
-// CSV一括の ViewModel。人ごとに主な候補・別枠の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる
+// CSV一括の ViewModel。人ごとに主な候補・その他の候補を、ボーナス回数の並び→トリガー数が0に近い順で並べる
 function buildBatchViewModel(state) {
+  const shown = shownBonus(state.bonusView);
   const people = (state.batch || []).map((p, index) => {
-    const pick = cs => cs.flatMap(c => p.list.filter(x => x.bonus === c).sort(byTrigger));
-    return { index, name: p.name, pt: p.pt, likely: pick(LIKELY_BONUS), rare: pick(RARE_BONUS), rareOpen: p.rareOpen };
+    const pick = keep => shown.flatMap(c => p.list.filter(x => x.bonus === c && isLikely(x) === keep).sort(byTrigger));
+    return { index, name: p.name, pt: p.pt, total: p.list.length, likely: pick(true), rare: pick(false), rareOpen: p.rareOpen };
   });
-  return { kind: 'batch', people, errors: state.batchErrors };
+  return { kind: 'batch', people, errors: state.batchErrors, bonusView: state.bonusView };
 }
 
 // ViewModel（純粋関数。appStateを直読みせず引数で受け取る）
 // 1グループの候補は最大3件（トリガー数の範囲の幅が、候補どうしの差 484,330 の2倍強のため）。全件を表示する
+// その他の候補のグループは、1〜4回は0件でも出し、0回・5回は候補がある回数だけ出す
 function buildViewModel(state) {
   if (state.mode === 'batch') return buildBatchViewModel(state);
   if (state.error) return { kind: 'error', message: state.error };
   if (!state.list) return { kind: 'idle' };
-  const toGroup = c => ({ bonus: c, items: state.list.filter(x => x.bonus === c).sort(byTrigger) });
-  const likely = LIKELY_BONUS.map(toGroup);
-  const rare   = RARE_BONUS.map(toGroup);
+  if (state.list.length === 0) return { kind: 'none' };
+  const shown = shownBonus(state.bonusView);
+  const toGroup = keep => c => ({ bonus: c, items: state.list.filter(x => x.bonus === c && isLikely(x) === keep).sort(byTrigger) });
+  const likely = shown.filter(c => LIKELY_BONUS.includes(c)).map(toGroup(true));
+  const rare   = shown.map(toGroup(false)).filter(g => g.items.length > 0 || RARE_BONUS.includes(g.bonus));
   const count  = gs => gs.reduce((n, g) => n + g.items.length, 0);
-  const likelyCount = count(likely);
-  const rareCount   = count(rare);
-  if (likelyCount + rareCount === 0) return { kind: 'none' };
-  return { kind: 'list', pt: state.pt, likely, rare, likelyCount, rareCount, rareOpen: state.rareOpen };
+  return {
+    kind: 'list', pt: state.pt, likely, rare, likelyCount: count(likely), rareCount: count(rare),
+    rareOpen: state.rareOpen, bonusView: state.bonusView,
+  };
 }
 
 // 候補1件の行。CSV一括ではボーナス回数のセルを先頭に足す
@@ -388,15 +421,22 @@ function _groupHtml(g) {
   return `<section class="group">${head}${rows}</section>`;
 }
 
+// サマリの中に置く、表示するボーナス回数の切り替え（上端に固定されるため、スクロール中も切り替えられる）
+function _viewRowHtml(view) {
+  const btns = BONUS_VIEWS.map(v =>
+    `<button type="button" class="seg-btn" data-action="bonus-view" data-view="${v}" aria-pressed="${v === view}">${viewLabel(v)}</button>`).join('');
+  return `<div class="srow"><span>表示する${esc(BONUS.name)}回数</span><span class="seg" role="group" aria-label="表示する${esc(BONUS.name)}回数">${btns}</span></div>`;
+}
+
 function _personHtml(p) {
   const head = `<h2 class="person-title"><span class="person-name">${esc(p.name)}</span><span class="person-pt"><span class="num">${fmt(p.pt)}</span>pt</span></h2>`;
-  if (p.likely.length + p.rare.length === 0)
+  if (p.total === 0)
     return `<section class="person">${head}<div class="group-empty warn">合う組み合わせがありません</div></section>`;
   const likely = p.likely.length
     ? p.likely.map(x => _rowHtml(x, true)).join('')
-    : `<div class="group-empty">${esc(BONUS.name)}${LIKELY_LABEL}の候補はありません</div>`;
+    : '<div class="group-empty">主な候補はありません</div>';
   if (p.rare.length === 0) return `<section class="person">${head}${likely}</section>`;
-  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare-person" data-index="${p.index}" aria-expanded="${p.rareOpen}">◇ ${esc(BONUS.name)}${RARE_LABEL}の候補（${p.rare.length}件）を${p.rareOpen ? '隠す' : '表示'}</button>`;
+  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare-person" data-index="${p.index}" aria-expanded="${p.rareOpen}">◇ その他の候補（${p.rare.length}件）を${p.rareOpen ? '隠す' : '表示'}</button>`;
   const rare = p.rareOpen ? p.rare.map(x => _rowHtml(x, true)).join('') : '';
   return `<section class="person">${head}${likely}${toggle}${rare}</section>`;
 }
@@ -407,6 +447,7 @@ function _batchHtml(vm) {
   const summary = `<div class="summary">
     <div class="srow"><span>計算した人数</span><span class="sval">${vm.people.length}人</span></div>
     <div class="srow"><span>読めなかった行</span><span class="sval">${vm.errors.length}行</span></div>
+    ${_viewRowHtml(vm.bonusView)}
   </div>`;
   return summary + vm.people.map(_personHtml).join('');
 }
@@ -419,12 +460,13 @@ function _resultHtml(vm) {
 
   const summary = `<div class="summary">
     <div class="srow"><span>指定のポイント</span><span class="sval">${fmt(vm.pt)}</span></div>
-    <div class="srow"><span>${esc(BONUS.name)}${LIKELY_LABEL}の候補</span><span class="sval">${vm.likelyCount}件</span></div>
-    <div class="srow"><span>${esc(BONUS.name)}${RARE_LABEL}の候補</span><span class="sval">${vm.rareCount}件</span></div>
+    <div class="srow"><span>主な候補</span><span class="sval">${vm.likelyCount}件</span></div>
+    <div class="srow"><span>その他の候補</span><span class="sval">${vm.rareCount}件</span></div>
+    ${_viewRowHtml(vm.bonusView)}
   </div>`;
   const likely = vm.likely.map(_groupHtml).join('');
   if (vm.rareCount === 0) return summary + likely;
-  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare" aria-expanded="${vm.rareOpen}">◇ ${esc(BONUS.name)}${RARE_LABEL}の候補を${vm.rareOpen ? '隠す' : '表示'}</button>`;
+  const toggle = `<button type="button" class="spec-toggle rare-toggle" data-action="rare" aria-expanded="${vm.rareOpen}">◇ その他の候補を${vm.rareOpen ? '隠す' : '表示'}</button>`;
   const rare = vm.rareOpen ? vm.rare.map(_groupHtml).join('') : '';
   return summary + likely + toggle + rare;
 }
@@ -459,7 +501,7 @@ function doCalc() {
   appState.error    = '';
   appState.list     = solve(appState.pt);
   // 主な候補が無いときだけ、別枠の候補を最初から開く
-  appState.rareOpen = !appState.list.some(x => LIKELY_BONUS.includes(x.bonus));
+  appState.rareOpen = !appState.list.some(isLikely);
   return renderAll();
 }
 
@@ -476,7 +518,7 @@ function doBatch() {
     appState.batch = people.map(p => {
       const list = solve(p.pt);
       // 主な候補が無い人だけ、別枠の候補を最初から開く
-      return { ...p, list, rareOpen: !list.some(x => LIKELY_BONUS.includes(x.bonus)) };
+      return { ...p, list, rareOpen: !list.some(isLikely) };
     });
     appState.batchErrors = errors.map(e => `${e.line}行目「${shorten(e.raw)}」: ${e.reason}`);
   }
@@ -490,6 +532,8 @@ document.getElementById('result').addEventListener('click', e => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   if (btn.dataset.action === 'rare') appState.rareOpen = !appState.rareOpen;
+  // 表示の切り替えは再計算しても保つ。決まった値以外は無視する
+  if (btn.dataset.action === 'bonus-view' && BONUS_VIEWS.includes(btn.dataset.view)) appState.bonusView = btn.dataset.view;
   if (btn.dataset.action === 'rare-person') {
     // Number('') は 0 になるため、数字だけの index に限る
     const p = /^\d+$/.test(btn.dataset.index || '') ? (appState.batch || [])[Number(btn.dataset.index)] : null;
