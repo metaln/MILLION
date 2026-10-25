@@ -132,7 +132,7 @@ test('buildSequence: 空・本数0のみは空の順序で成立', () => {
   assert.deepEqual(buildSequence({ mm1: 0, el: 0 }, 100), { seq: [], ok: true });
 });
 
-test('buildSequence: counts のキー順に関係なく 1st/2nd → 3rd の選好順で並ぶ', () => {
+test('buildSequence: counts のキー順に関係なく 1st/2nd → 3rd の優先順で並ぶ', () => {
   assert.deepEqual(ids(buildSequence({ '2mw': 1, mm1: 1, mm3: 1, mm2: 1 }, 0).seq), ['mm2', 'mm1', '2mw', 'mm3']);
 });
 

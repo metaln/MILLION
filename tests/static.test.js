@@ -34,7 +34,7 @@ test('起動時検証: 失敗しても計算ボタン・仕様トグル・結果
   assert.equal(p.el('result-rows').innerHTML.trim(), '<div class="placeholder">「計算する」を押すと結果が表示されます</div>');
 });
 
-test('起動時検証: 複数曲が不正なら選好順で最初の曲を報告する', () => {
+test('起動時検証: 複数曲が不正なら優先順で最初の曲を報告する', () => {
   const p = withTrigger(15, [{ from: 'trigger: 20 },', to: 'trigger: 100 },' }]);   // mm3=15, 2m3=100
   assert.deepEqual(setupError(p), [['placeholder warn', MSG('mm3')]]);
 });

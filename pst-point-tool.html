@@ -332,7 +332,7 @@ const esc = s => String(s).replace(/[&<>"']/g,
 // プレイ順序の分類（spec: 進捗を増やす3rdより先に1st/2ndを消化）
 const PROGRESS_SONGS = FILL_ORDER.filter(id => BY_ID[id].trigger > 0);  // 3rd（進捗増）
 const FLAT_SONGS     = FILL_ORDER.filter(id => BY_ID[id].trigger === 0); // 1st/2nd（進捗不変）
-const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 選好順（calcAlgo で使用）
+const NON_EL = FILL_ORDER.map(id => BY_ID[id]);   // 優先順（calcAlgo で使用）
 // calcAlgo のDP最内ループ用に事前展開（除算・プロパティアクセスをループ外へ）
 const NON_EL_PT = Int16Array.from(NON_EL, s => s.point);
 const NON_EL_GP = Int8Array.from(NON_EL, s => s.trigger / STEP);
@@ -569,7 +569,7 @@ function _renderSummary(vm) {
   const pe = document.getElementById('s-prog');
   const dispProg = Math.min(PROGRESS_CAP, Math.max(0, prog));
   const progWarn  = prog >= PROGRESS_CAP ? '　※ Event Live が出現します' : '';
-  const orderWarn = !ok ? '　※ この本数ではプレイ順序を組めません（Event Liveが足りません）' : '';
+  const orderWarn = !ok ? '　※ この本数ではプレイ順序を組めません' : '';
   pe.textContent = dispProg + progWarn + orderWarn;
   pe.className = 'sval' + (prog >= PROGRESS_CAP || !ok ? ' warn' : '');
 }
@@ -584,7 +584,7 @@ function _renderOrder(vm) {
 
   card.style.display = 'block';
   if (!ok) {
-    list.innerHTML = '<li class="order-error">この本数ではプレイ順序を組めません（進捗が100に達したときのEvent Liveが足りません）</li>';
+    list.innerHTML = '<li class="order-error">この本数ではプレイ順序を組めません（Event Liveの残り本数と、進捗が100に達する回数が合いません）</li>';
     return;
   }
   list.innerHTML = seq.map(s => {

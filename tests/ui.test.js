@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const { loadPst, parseRows, parseOrder } = require('./helpers/load-pst');
 
 const WARN_EL = '　※ Event Live が出現します';
-const WARN_ORDER = '　※ この本数ではプレイ順序を組めません（Event Liveが足りません）';
+const WARN_ORDER = '　※ この本数ではプレイ順序を組めません';
 const MSG_INFEASIBLE = '<div class="placeholder warn">目標ポイントにぴったり合う組み合わせがありません</div>';
 const MSG_ACHIEVED = '<div class="placeholder">目標に達しています</div>';
 
@@ -189,7 +189,7 @@ test('順序を組めない（ok=false）ときはサマリと順序の両方に
 
   p._renderOrder({ kind: 'rows', seq: [], ok: false });
   assert.equal(shown(p, 'play-order'), 'block');
-  assert.deepEqual(order(p), [{ cls: 'order-error', text: 'この本数ではプレイ順序を組めません（進捗が100に達したときのEvent Liveが足りません）' }]);
+  assert.deepEqual(order(p), [{ cls: 'order-error', text: 'この本数ではプレイ順序を組めません（Event Liveの残り本数と、進捗が100に達する回数が合いません）' }]);
   // 対照: 同じ空の順序でも ok=true なら順序カードを隠す
   p._renderOrder({ kind: 'rows', seq: [], ok: true });
   assert.equal(shown(p, 'play-order'), 'none');
