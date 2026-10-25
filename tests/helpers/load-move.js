@@ -26,6 +26,23 @@ function loadMove({ patches = [] } = {}) {
     code = code.replace(from, to);
   }
   const document = buildDocument(HTML);
+
+  // #result の querySelector: `[属性="値"]` の連なりだけを受け付け、innerHTML 中の <button> 開始タグのうち
+  // 全属性が一致する最初の1件を返す。focus() を呼ぶと focused に一致した属性の object を1件足す
+  const focused = [];
+  document.getElementById('result').querySelector = sel => {
+    if (!/^(\[[\w-]+="[^"]*"\])+$/.test(sel)) throw new Error(`未対応のセレクタ: ${sel}`);
+    const want = [...sel.matchAll(/\[([\w-]+)="([^"]*)"\]/g)].map(m => [m[1], m[2]]);
+    for (const tag of document.getElementById('result').innerHTML.matchAll(/<button\s([^>]*)>/g)) {
+      const attrs = {};
+      for (const m of tag[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
+      if (want.every(([k, v]) => attrs[k] === v)) {
+        return { focus: () => focused.push(Object.fromEntries(want)) };
+      }
+    }
+    return null;
+  };
+
   const mod = { exports: {} };
   // eslint-disable-next-line no-new-func
   new Function('module', 'document', `${code}\n;module.exports = { ${EXPORTS.join(', ')} };`)(mod, document);
@@ -62,7 +79,7 @@ function loadMove({ patches = [] } = {}) {
     target: { closest: () => ({ dataset: view === undefined ? { action: 'bonus-view' } : { action: 'bonus-view', view } }) },
   });
 
-  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView };
+  return { ...mod.exports, document, el, fire, calc, batch, clickResult, clickView, focused };
 }
 
 // 結果欄の切り替えボタンの [data-view, aria-pressed] の並び

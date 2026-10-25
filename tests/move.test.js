@@ -405,6 +405,34 @@ test('結果欄: data-action の無い箇所のクリックは描画し直さな
   assert.deepEqual(result(p).toggle, TOGGLE_OPEN);
 });
 
+test('フォーカス: 別枠・表示切り替えのボタンを押したら、描画し直した後に同じボタンへフォーカスを戻す', () => {
+  const p = loadMove();
+  p.calc(57120);
+  assert.deepEqual(p.focused, []);
+  p.clickResult('rare');
+  assert.deepEqual(p.focused, [{ 'data-action': 'rare' }]);
+  p.clickView('5');
+  p.clickView('all');
+  p.clickView('0');
+  assert.deepEqual(p.focused.slice(1), [
+    { 'data-action': 'bonus-view', 'data-view': '5' },
+    { 'data-action': 'bonus-view', 'data-view': 'all' },
+    { 'data-action': 'bonus-view', 'data-view': '0' },
+  ]);
+  assert.equal(p.focused.length, 4);
+  // 負例: data-action の無い箇所・決まった値以外の view・data-view の無いボタン・一括用 action は動かさない
+  const before = p.focused.length;
+  p.clickResult(null);
+  for (const v of ['1', '4', 'All', '', ' 5', '05', undefined]) p.clickView(v);
+  p.clickResult('rare-person', 0);
+  p.clickResult('unknown');
+  assert.equal(p.focused.length, before);
+  // 対照: 候補が0件でボタンが無い結果では、有効な action でもフォーカスは記録されない（見つからない）
+  p.calc(595);
+  p.clickResult('rare');
+  assert.equal(p.focused.length, before);
+});
+
 test('仕様: 定数から組んだ7項目を表示し、トグルで開閉する', () => {
   const p = loadMove();
   const { CHARGE: C, RELEASE: R, BONUS: B } = p;

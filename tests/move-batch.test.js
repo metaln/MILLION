@@ -224,6 +224,29 @@ test('一括: 別枠のボタンは押した人だけ開閉し、範囲外・数
   assert.deepEqual(toggles(), ['false', 'false', 'true']);
 });
 
+test('一括: 人ごとの別枠ボタンを押したら、描画し直した後に同じ人のボタンへフォーカスを戻す', () => {
+  const p = loadMove();
+  p.batch(Array.from({ length: 8 }, (_, i) => `p${i},57120`).join('\n'));
+  assert.equal(batchResult(p).people.length, 8);
+  assert.deepEqual(p.focused, []);
+  const at = i => ({ 'data-action': 'rare-person', 'data-index': String(i) });
+  p.clickResult('rare-person', 4);
+  assert.deepEqual(p.focused, [at(4)]);
+  p.clickResult('rare-person', 7);
+  assert.deepEqual(p.focused, [at(4), at(7)]);
+  // 閉じる側のクリックでも戻す
+  p.clickResult('rare-person', 4);
+  assert.deepEqual(p.focused, [at(4), at(7), at(4)]);
+  // 対照ではない負例: 範囲外・数字でない・負・空の index はフォーカスを動かさない
+  for (const i of [99, 8, 'abc', '-1', '', '1e0']) {
+    p.clickResult('rare-person', i);
+    assert.deepEqual(p.focused, [at(4), at(7), at(4)], `index=${JSON.stringify(i)}`);
+  }
+  // 対照: 同じ経路で有効な index なら記録される（観測経路が生きている）
+  p.clickResult('rare-person', 0);
+  assert.deepEqual(p.focused, [at(4), at(7), at(4), at(0)]);
+});
+
 test('一括: 0回・5回の切り替えは全員の主な候補・その他の候補に効き、再計算しても保つ。候補なしの警告は切り替えによらない', () => {
   const p = loadMove();
   p.batch('かぶりこ,4605373\n主だけ,15000\nなし,1');
