@@ -12,15 +12,16 @@ body {
   background: #f7f7f7;
   color: #444;
   padding: 28px 24px;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 h1 {
   font-size: 19px;
   font-weight: 500;
   color: #4D4D4D;
   margin-bottom: 20px;
-  letter-spacing: 0.04em;
 }
+h1, .group-title { text-wrap: balance; }
+.spec-body li, .placeholder, .field-error { text-wrap: pretty; }
 .layout {
   display: flex;
   gap: 20px;
@@ -52,12 +53,16 @@ h1 {
   padding: 7px 10px;
   font-size: 14px;
   color: #1a1a1a;
+  font-variant-numeric: tabular-nums;
   outline: none;
   -moz-appearance: textfield;
 }
 .field input[type=number]::-webkit-inner-spin-button,
 .field input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 .field input[type=number]:focus { border-color: #3460FB; }
+.field input[type=number][aria-invalid="true"] { border-color: #D42020; }
+.field-error { margin-top: 5px; font-size: 12px; font-weight: 600; color: #D42020; }
+.field-error:empty { display: none; }
 .btn-calc {
   width: 100%;
   padding: 9px;
@@ -68,7 +73,6 @@ h1 {
   font-size: 14px;
   cursor: pointer;
   margin-top: 2px;
-  transition: background 0.15s, border-color 0.15s;
 }
 .btn-calc:hover { background: #0017C1; border-color: #0017C1; }
 .spec-toggle {
@@ -112,15 +116,14 @@ h1 {
 /* ─── Summary（スクロールしても指定のポイントが見えるよう上端に固定）─── */
 .summary {
   position: sticky;
-  top: 0;
-  z-index: 1;
+  top: env(safe-area-inset-top, 0px);
   margin-bottom: 18px;
   background: #f5f8ff;
   border: 1px solid #b9c7fb;
   border-radius: 5px;
   padding: 12px 16px;
   font-size: 13px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 .srow {
   display: flex;
@@ -144,7 +147,7 @@ h1 {
   color: #4D4D4D;
   margin-bottom: 8px;
 }
-.group-count { font-size: 12px; font-weight: 400; color: #767676; }
+.group-count { font-size: 12px; font-weight: 400; color: #767676; font-variant-numeric: tabular-nums; }
 .group-empty { font-size: 13px; color: #767676; padding: 2px 0; }
 .result-row {
   display: flex;
@@ -191,15 +194,16 @@ h1 {
 
 <div class="layout">
   <div class="left">
-    <div class="input-card">
+    <form class="input-card" id="calc-form" novalidate>
       <div class="field">
         <label for="inp-pt">指定のポイント</label>
-        <input type="number" id="inp-pt" value="0" min="0" inputmode="numeric">
+        <input type="number" id="inp-pt" value="0" min="0" inputmode="numeric" aria-describedby="inp-pt-error">
+        <p class="field-error" id="inp-pt-error" aria-live="polite"></p>
       </div>
-      <button class="btn-calc" id="btn-calc">計算する</button>
+      <button type="submit" class="btn-calc" id="btn-calc">計算する</button>
       <button type="button" class="spec-toggle" id="spec-toggle" aria-expanded="false" aria-controls="spec-body">◇ 仕様を表示</button>
       <ul class="spec-body" id="spec-body"></ul>
-    </div>
+    </form>
   </div>
 
   <div class="right">
@@ -295,8 +299,8 @@ function _groupHtml(g) {
 
 function _resultHtml(vm) {
   if (vm.kind === 'idle')  return '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
-  if (vm.kind === 'error') return `<div class="placeholder warn">${esc(vm.message)}</div>`;
-  if (vm.kind === 'none')  return '<div class="placeholder warn">指定のポイントに合う組み合わせがありません</div>';
+  if (vm.kind === 'error') return '';   // 入力のエラーは入力欄の直下に出す（_renderFieldError）
+  if (vm.kind === 'none')  return '<div class="placeholder warn">指定のポイントに合う組み合わせがありません。入力したポイントを確かめてください</div>';
 
   const summary = `<div class="summary">
     <div class="srow"><span>指定のポイント</span><span class="sval">${fmt(vm.pt)}</span></div>
@@ -310,9 +314,16 @@ function _resultHtml(vm) {
   return summary + likely + toggle + rare;
 }
 
+function _renderFieldError(vm) {
+  const message = vm.kind === 'error' ? vm.message : '';
+  document.getElementById('inp-pt-error').textContent = message;
+  document.getElementById('inp-pt').setAttribute('aria-invalid', message ? 'true' : 'false');
+}
+
 function renderAll() {
   const vm = buildViewModel(appState);
   document.getElementById('result').innerHTML = _resultHtml(vm);
+  _renderFieldError(vm);
   return vm;
 }
 
@@ -341,8 +352,11 @@ document.getElementById('result').addEventListener('click', e => {
   renderAll();
 });
 
-document.getElementById('btn-calc').addEventListener('click', doCalc);
-document.getElementById('inp-pt').addEventListener('keydown', e => { if (e.key === 'Enter') doCalc(); });
+// 入力欄での Enter はフォームの標準動作で submit になる。送信先は無いため既定動作は止める
+document.getElementById('calc-form').addEventListener('submit', e => {
+  e.preventDefault();
+  doCalc();
+});
 document.getElementById('spec-toggle').addEventListener('click', () => {
   const body = document.getElementById('spec-body');
   const btn  = document.getElementById('spec-toggle');

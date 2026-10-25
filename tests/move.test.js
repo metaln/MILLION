@@ -10,6 +10,7 @@
 // - buildViewModel の idle（未計算）: doCalc は必ず list か error を設定するため操作経路では起きない。
 //   静的HTMLの初期表示と一致することだけ見る
 // - サマリの上端固定の実際の見え方・フォーカス位置・色: 目視確認の範囲（CSS の宣言の有無だけ見る）
+// - 入力欄での Enter による送信: ブラウザの標準動作（暗黙の submit）。form の中に入力欄と submit ボタンがある構造だけ見る
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -22,8 +23,9 @@ const result = p => parseResult(p.el('result').innerHTML);
 const outline = p => result(p).groups.map(g => [g.title, g.total, g.rows.length]);
 
 const MSG_IDLE = '<div class="placeholder">「計算する」を押すと結果が表示されます</div>';
-const MSG_NONE = '<div class="placeholder warn">指定のポイントに合う組み合わせがありません</div>';
-const MSG_OVER = `<div class="placeholder warn">ポイントは${(99999999).toLocaleString()}以下にしてください</div>`;
+const MSG_NONE = '<div class="placeholder warn">指定のポイントに合う組み合わせがありません。入力したポイントを確かめてください</div>';
+const MSG_OVER = `ポイントは${(99999999).toLocaleString()}以下にしてください`;
+const fieldError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
 const SUMMARY = (pt, likely, rare) => [
   ['指定のポイント', pt.toLocaleString()], ['ボーナス0回・5回の候補', `${likely}件`], ['ボーナス1〜4回の候補', `${rare}件`],
 ];
@@ -222,15 +224,17 @@ test('表示: 組み合わせが無いポイントは警告だけを出す（前
   }
 });
 
-test('doCalc: 上限 99,999,999（8桁）ちょうどは計算し、+1 で警告。続けて正常値を入れると戻る', () => {
+test('doCalc: 上限 99,999,999（8桁）ちょうどは計算し、+1 は入力欄の直下に警告。続けて正常値を入れると戻る', () => {
   const p = loadMove();
+  // 初期状態: エラー表示は空で、aria-invalid は未設定
+  assert.deepEqual(fieldError(p), ['', null]);
   p.calc(99999999);
-  assert.deepEqual([p.appState.error, result(p).summary], ['', SUMMARY(99999999, 4, 8)]);
+  assert.deepEqual([fieldError(p), result(p).summary], [['', 'false'], SUMMARY(99999999, 4, 8)]);
   p.calc(100000000);
-  assert.equal(p.el('result').innerHTML, MSG_OVER);
-  assert.equal(p.appState.list, null);
+  // 警告は入力欄の直下だけに出し、結果欄は前の結果を残さず空にする
+  assert.deepEqual([fieldError(p), p.el('result').innerHTML, p.appState.list], [[MSG_OVER, 'true'], '', null]);
   p.calc(595);
-  assert.deepEqual(result(p).summary, SUMMARY(595, 1, 0));
+  assert.deepEqual([fieldError(p), result(p).summary], [['', 'false'], SUMMARY(595, 1, 0)]);
 });
 
 test('doCalc: 入力の正規化（空・非数・負・小数・指数表記・非有限）', () => {
@@ -249,12 +253,14 @@ test('初期表示: HTML の案内文と idle の描画が一致する', () => {
   assert.equal(p.buildViewModel({ list: null, error: '' }).kind, 'idle');
 });
 
-test('入力欄: Enter で計算し、ほかのキーでは計算しない', () => {
+test('フォーム: 入力欄と submit ボタンを form に入れ、submit で計算して既定動作（送信）を止める', () => {
   const p = loadMove();
-  p.el('inp-pt').value = '595';
-  p.fire('inp-pt', 'keydown', { key: 'a' });
-  assert.equal(p.el('result').innerHTML, MSG_IDLE);
-  p.fire('inp-pt', 'keydown', { key: 'Enter' });
+  const inner = p.el('calc-form').innerHTML;
+  assert.equal(inner.includes('<input type="number" id="inp-pt"'), true);
+  assert.equal(inner.includes('<button type="submit" class="btn-calc" id="btn-calc">計算する</button>'), true);
+  // キーボード操作を手作りしない: 入力欄・ボタンに直接のリスナーは置かない
+  assert.deepEqual([p.el('inp-pt').listeners, p.el('btn-calc').listeners], [{}, {}]);
+  assert.equal(p.calc(595), true);
   assert.deepEqual(result(p).summary, SUMMARY(595, 1, 0));
 });
 
@@ -293,7 +299,8 @@ test('仕様: 定数から組んだ6項目を表示し、トグルで開閉す�
 
 test('HTML: 指定のポイントを含むサマリはスクロールしても画面上端に残る（sticky 指定）', () => {
   const rule = sel => (HTML.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`)) || [])[1];
-  const sticky = body => /\bposition: sticky;/.test(body) && /\btop: 0;/.test(body);
+  // 上端の位置はノッチ等の安全領域を避ける（viewport-fit=cover でなければ 0 と同じ）
+  const sticky = body => /\bposition: sticky;/.test(body) && /\btop: env\(safe-area-inset-top, 0px\);/.test(body);
   assert.equal(sticky(rule('.summary')), true);
   // 対照: 同じ判定は、抽出できた sticky でない規則を拾わない
   assert.equal(typeof rule('.srow'), 'string');
@@ -304,6 +311,27 @@ test('HTML: 指定のポイントを含むサマリはスクロールしても�
     p.calc(pt);
     assert.equal(p.el('result').innerHTML.startsWith('<div class="summary">'), true, `pt=${pt}`);
   }
+});
+
+test('HTML: baseline-ui の禁止事項（100vh・letter-spacing・transition/animation・z-index）を CSS に含まない', () => {
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  // 前提: <style> を切り出せている（indexOf が -1 だと範囲がずれて全文や空文字になる）
+  assert.equal(css.startsWith('<style>') && css.includes('.summary {'), true);
+  const banned = /\b100vh\b|letter-spacing:|transition:|animation:|z-index:/g;
+  assert.deepEqual(css.match(banned), null);
+  // 対照: 同じ検出式は各禁止事項を拾う
+  assert.deepEqual('a{min-height:100vh;letter-spacing:1px;transition:x;animation:y;z-index:1}'.match(banned),
+    ['100vh', 'letter-spacing:', 'transition:', 'animation:', 'z-index:']);
+  assert.deepEqual('a{min-height:100dvh}'.match(banned), null);
+});
+
+test('HTML: baseline-ui の書式（見出しは balance・本文は pretty・数値は tabular-nums）', () => {
+  assert.equal(HTML.includes('h1, .group-title { text-wrap: balance; }'), true);
+  assert.equal(HTML.includes('.spec-body li, .placeholder, .field-error { text-wrap: pretty; }'), true);
+  const rule = sel => (HTML.match(new RegExp(`\\n${sel.replace(/[.[\]=]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1] || '';
+  for (const sel of ['.field input[type=number]', '.sval', '.num'])
+    assert.equal(rule(sel).includes('font-variant-numeric: tabular-nums;'), true, sel);
+  assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #767676; font-variant-numeric: tabular-nums; }'), true);
 });
 
 test('HTML: CSP meta・インラインイベントハンドラ無し・入力欄の label[for]', () => {

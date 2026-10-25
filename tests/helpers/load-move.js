@@ -12,7 +12,7 @@ const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 const EXPORTS = [
   'CHARGE', 'RELEASE', 'BONUS', 'TRIGGER_MIN', 'TRIGGER_MAX', 'LIKELY_BONUS', 'RARE_BONUS', 'MAX_PT',
   'LIKELY_LABEL', 'RARE_LABEL', 'SPEC_ITEMS', 'bonusLabel', 'esc', 'solve', 'byTrigger', 'appState',
-  'buildViewModel', '_groupHtml', '_resultHtml', 'renderAll', 'doCalc',
+  'buildViewModel', '_groupHtml', '_resultHtml', '_renderFieldError', 'renderAll', 'doCalc',
 ];
 
 // patches: [{ from, to }] 各 from はスクリプト内でちょうど1回出現すること（別関数への誤爆防止）
@@ -34,9 +34,13 @@ function loadMove({ patches = [] } = {}) {
     return e;
   };
   const fire = (id, type, ev = {}) => (el(id).listeners[type] || []).forEach(fn => fn(ev));
+  // 「計算する」ボタン・入力欄の Enter はどちらもフォームの submit になる（ブラウザの標準動作）。
+  // 戻り値は既定動作（送信）を止めたかどうか
   const calc = v => {
     el('inp-pt').value = String(v);
-    fire('btn-calc', 'click');
+    let prevented = false;
+    fire('calc-form', 'submit', { preventDefault: () => { prevented = true; } });
+    return prevented;
   };
   // #result のイベント委譲へ渡すクリック。action=null は data-action の無い箇所のクリック
   const clickResult = action => fire('result', 'click', {
