@@ -34,8 +34,9 @@ const SUMMARY = (pt, likely, rare) => [
   ['指定のポイント', pt.toLocaleString()], ['主な候補', `${likely}件`], ['その他の候補', `${rare}件`],
 ];
 const EMPTY = c => ({ title: `ボーナス ${c}回`, total: 0, rows: [], empty: true });
-const TOGGLE_CLOSED = { expanded: 'false', label: '◇ その他の候補を表示' };
-const TOGGLE_OPEN = { expanded: 'true', label: '◇ その他の候補を隠す' };
+// label は ◇（aria-hidden の span）の後の文言
+const TOGGLE_CLOSED = { expanded: 'false', label: 'その他の候補を表示' };
+const TOGGLE_OPEN = { expanded: 'true', label: 'その他の候補を隠す' };
 const VIEWS = pressed => ['all', '0', '5'].map(v => [v, String(v === pressed), v === 'all' ? '両方' : `${v}回`]);
 
 // 検算用: solve とは別の手順（回数の組を先にすべて作り、合計ポイントで引く）で、pt が [lo, hi] の候補を数え直す
@@ -539,12 +540,15 @@ test('仕様: 定数から組んだ7項目を表示し、トグルで開閉す�
   ];
   assert.equal(p.el('spec-body').innerHTML, want.map(s => `<li>${s}</li>`).join(''));
 
-  const state = () => [p.el('spec-body').classList.contains('open'), p.el('spec-toggle').getAttribute('aria-expanded')];
-  assert.deepEqual(state(), [false, 'false']);
+  // ◇ は読み上げから外し、文言は開閉に合わせて「表示」と「隠す」を切り替える
+  assert.equal(p.el('spec-toggle').innerHTML, '<span aria-hidden="true">◇</span> <span id="spec-toggle-label">仕様を表示</span>');
+  const state = () => [p.el('spec-body').classList.contains('open'), p.el('spec-toggle').getAttribute('aria-expanded'),
+    p.el('spec-toggle-label').textContent];
+  assert.deepEqual(state(), [false, 'false', '仕様を表示']);
   p.fire('spec-toggle', 'click');
-  assert.deepEqual(state(), [true, 'true']);
+  assert.deepEqual(state(), [true, 'true', '仕様を隠す']);
   p.fire('spec-toggle', 'click');
-  assert.deepEqual(state(), [false, 'false']);
+  assert.deepEqual(state(), [false, 'false', '仕様を表示']);
 });
 
 test('HTML: 指定のポイントを含むサマリはスクロールしても画面上端に残る（sticky 指定）', () => {

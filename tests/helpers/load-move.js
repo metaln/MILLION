@@ -106,7 +106,8 @@ function parseResult(html) {
       empty: chunk.includes('<div class="group-empty">該当なし</div>'),
     };
   });
-  const toggle = html.match(/data-action="rare" aria-expanded="(true|false)">([^<]*)<\/button>/);
+  // 開閉ボタンの先頭の ◇ は読み上げから外す（aria-hidden の span）。label はその後の文言
+  const toggle = html.match(/data-action="rare" aria-expanded="(true|false)"><span aria-hidden="true">◇<\/span> ([^<]*)<\/button>/);
   return { summary, groups, toggle: toggle ? { expanded: toggle[1], label: toggle[2] } : null };
 }
 

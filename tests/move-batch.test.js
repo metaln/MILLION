@@ -29,7 +29,7 @@ function parseBatch(html) {
   const people = html.split('<section class="person">').slice(1).map(chunk => {
     const head = chunk.match(/<span class="person-name">([^<]*)<\/span><span class="person-pt"><span class="num">([^<]*)<\/span>pt<\/span>/);
     const note = chunk.match(/<div class="group-empty( warn)?">([^<]*)<\/div>/);
-    const toggle = chunk.match(/data-action="rare-person" data-index="(\d+)" aria-expanded="(true|false)">([^<]*)<\/button>/);
+    const toggle = chunk.match(/data-action="rare-person" data-index="(\d+)" aria-expanded="(true|false)"><span aria-hidden="true">◇<\/span> ([^<]*)<\/button>/);
     const [likely, rare = ''] = chunk.split('<button');
     return {
       name: head[1], pt: head[2], likely: rowsOf(likely), rare: rowsOf(rare),
@@ -44,7 +44,8 @@ const batchResult = p => parseBatch(p.el('result').innerHTML);
 const csvError = p => [p.el('inp-csv-error').textContent, p.el('inp-csv').getAttribute('aria-invalid')];
 const ptError = p => [p.el('inp-pt-error').textContent, p.el('inp-pt').getAttribute('aria-invalid')];
 const SUMMARY = (n, bad) => [['計算した人数', `${n}人`], ['読めなかった行', `${bad}行`]];
-const TOGGLE = (i, open, n) => [String(i), String(open), `◇ その他の候補（${n}件）を${open ? '隠す' : '表示'}`];
+// 文言は ◇（aria-hidden の span）の後
+const TOGGLE = (i, open, n) => [String(i), String(open), `その他の候補（${n}件）を${open ? '隠す' : '表示'}`];
 const MSG_EMPTY = '名前と現在ptを1行以上入力してください';
 const MSG_NOT_INT = 'ポイントが0以上の整数ではありません';
 const MSG_NO_SEP = '区切り（カンマかタブ）がありません';
