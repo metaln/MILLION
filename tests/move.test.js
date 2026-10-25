@@ -425,6 +425,16 @@ test('HTML: baseline-ui の書式（見出しは balance・本文は pretty・�
   assert.equal(HTML.includes('.group-count { font-size: 12px; font-weight: 400; color: #767676; font-variant-numeric: tabular-nums; }'), true);
 });
 
+test('HTML: 入力欄のフォーカスは枠線の色でなくアウトラインで示す（エラーの赤枠中も見える）', () => {
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  assert.equal(css.startsWith('<style>') && css.includes('.field textarea {'), true);
+  const noOutline = /outline:\s*none/g;
+  assert.deepEqual(css.match(noOutline), null);
+  // 対照: 同じ検出式は outline: none を拾う
+  assert.deepEqual('a{outline: none}b{outline:none}'.match(noOutline), ['outline: none', 'outline:none']);
+  assert.equal(css.includes('\n.field input:focus-visible, .field textarea:focus-visible { outline: 2px solid #3460FB; outline-offset: 1px; }'), true);
+});
+
 test('HTML: CSP meta・インラインイベントハンドラ無し・入力欄の label[for]', () => {
   const m = HTML.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)">/);
   assert.ok(m, 'CSP meta が無い');

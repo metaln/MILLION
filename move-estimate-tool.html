@@ -54,7 +54,6 @@ h1, .group-title { text-wrap: balance; }
   font-size: 14px;
   color: #1a1a1a;
   font-variant-numeric: tabular-nums;
-  outline: none;
   -moz-appearance: textfield;
 }
 .field input[type=number]::-webkit-inner-spin-button,
@@ -76,11 +75,12 @@ h1, .group-title { text-wrap: balance; }
   line-height: 1.5;
   color: #1a1a1a;
   font-variant-numeric: tabular-nums;
-  outline: none;
   resize: vertical;
 }
 .field textarea:focus { border-color: #3460FB; }
 .field textarea[aria-invalid="true"] { border-color: #D42020; }
+/* フォーカスは枠線の色と別の手段で示す（エラーの赤枠のままでも見える）*/
+.field input:focus-visible, .field textarea:focus-visible { outline: 2px solid #3460FB; outline-offset: 1px; }
 #inp-csv-error { white-space: pre-line; }
 .btn-calc {
   width: 100%;
