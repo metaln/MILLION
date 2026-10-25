@@ -325,11 +325,18 @@ const signed = n => (n > 0 ? '+' : '') + fmt(n);
 // 最後のトリガー数が範囲内なら、途中も範囲内に収まる順序がある。下限に届くまで吐きを打ち、
 // 届いたら貯めを1回挟む。吐きが尽きたら残りの貯めを打つ。途中の最大は0か最後の値で、最小は下限以上。
 // そのため判定は最後のトリガー数だけで行う。
+// 残り rest − 吐き×634 が595で割り切れる吐き回数は、595 / gcd(634, 595) 回ごとに現れる。
+// 最初の1回を1周期の中で探し、以降はその刻みで進める（1刻みで回すと、MAX_PT で1件約95万回になる）
+const gcd = (x, y) => (y === 0 ? x : gcd(y, x % y));
+const RELEASE_STEP = CHARGE.point / gcd(RELEASE.point, CHARGE.point);
 function solve(pt) {
   const list = [];
   for (let c = 0; c <= BONUS.max; c++) {
     const rest = pt - BONUS.point * c;
-    for (let b = 0; RELEASE.point * b <= rest; b++) {
+    let first = 0;
+    while (first < RELEASE_STEP && (rest - RELEASE.point * first) % CHARGE.point !== 0) first++;
+    if (first === RELEASE_STEP) continue;   // 1周期で割り切れなければ、この回数の組は無い
+    for (let b = first; RELEASE.point * b <= rest; b += RELEASE_STEP) {
       const r = rest - RELEASE.point * b;
       if (r % CHARGE.point !== 0) continue;
       const a = r / CHARGE.point;

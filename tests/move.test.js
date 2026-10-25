@@ -112,6 +112,11 @@ test('solve: 1,000,000〜1,010,000 の全ポイントで前向き列挙と一致
   assert.deepEqual(compareRange(1000000, 1010000), { compared: 124680, low: 33895, high: 196 });
 });
 
+test('solve: 入力上限の直前 99,999,000〜99,999,999 の全ポイントで前向き列挙と一致する（吐きの刻み走査を上限まで検算）', () => {
+  // 前提: 下限・上限の両方で外れる組を含む
+  assert.deepEqual(compareRange(mv.MAX_PT - 999, mv.MAX_PT), { compared: 12515, low: 351569, high: 1226336 });
+});
+
 test('solve: 最小の動きの前後（負・0・1・594・595・596・633・634）', () => {
   const cases = [
     [-1, []],
