@@ -81,7 +81,9 @@ test('parseCsv: 行番号は空行を含めた物理行で数える（CRLF・CR�
   const text = '\uFEFF  a,1190  \r\n\r\n \t \rb,595\n\nc,634\r\n';
   // 1: a / 2: 空 / 3: 空白だけ / 4: b（CR 区切り）/ 5: 空 / 6: c / 7: 末尾の CRLF の後の空行
   assert.deepEqual(parseCsv(text), { people: people([1, 'a', 1190], [4, 'b', 595], [6, 'c', 634]), errors: [] });
-  // BOM は行の trim で除かれる（U+FEFF は JS の空白に含まれる）。名前の直前・pt の直後に付いても残らない
+  // BOM は行の trim で除かれる（U+FEFF は JS の空白に含まれる）。名前の直前・pt の直後に付いても残らない。
+  // 名前の欄と pt の欄（parsePt）でも trim するため、行の trim を「BOM を除かない trim」に替えても上の2件は通る。
+  // 行の trim が BOM を除くことは、BOM だけの入力のテスト（「空・空行だけは0件」）が担う
   assert.deepEqual(parseCsv('\uFEFFa,1\uFEFF').people, people([1, 'a', 1]));
 });
 
